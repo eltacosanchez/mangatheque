@@ -15,3 +15,4 @@
 # Pour GitHub Actions, la clé est fournie via les Secrets du dépôt (voir README).
 keystore/*.jks
 keystore/keystore.properties
+/A-ENVOYER-SUR-GITHUB/
