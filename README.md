@@ -3,6 +3,10 @@
 Application native Android (Kotlin + Jetpack Compose) pour gérer ta collection de mangas,
 installable en APK sans Play Store. Testée pour un Pixel 9a (Android 15), compatible Android 8 et plus.
 
+> 🤖 Projet personnel réalisé avec l'aide d'une IA (Claude, d'Anthropic) pour l'écriture du code.
+
+**Télécharger :** la dernière version (fichier `.apk`) est dans l'onglet [Releases](../../releases/latest).
+
 ## Ce que fait l'application
 
 | Onglet | Fonction |
