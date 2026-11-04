@@ -43,6 +43,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -137,9 +138,11 @@ fun HomeScreen(
     var volumeToDelete by remember { mutableStateOf<Volume?>(null) }
     val haptic = rememberHaptic(vm)
     val backupDue = !backupHidden && vm.backupReminderDue(totalOwned)
+    // Prochaines sorties : recherche en arrière-plan (au plus toutes les 12 h)
+    LaunchedEffect(all.size) { if (all.isNotEmpty()) vm.refreshReleases() }
 
     Box(Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxWidth().height(300.dp).halftone(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f), spacing = 11.dp, radius = 2.4.dp, fade = true))
+        Box(Modifier.fillMaxWidth().height(300.dp).halftone(MaterialTheme.colorScheme.primary.copy(alpha = if (MaterialTheme.extra.isDark) 0.08f else 0.05f), spacing = 11.dp, radius = 2.4.dp, fade = true))
 
         LazyVerticalGrid(
             columns = if (vm.listMode) GridCells.Fixed(1) else GridCells.Adaptive(minSize = 120.dp),
@@ -212,6 +215,12 @@ fun HomeScreen(
                 }
             }
 
+            if (noFilter && vm.releases.isNotEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }, key = "sorties") {
+                    ReleasesShelf(vm, onOpenSeries)
+                }
+            }
+
             if (noFilter) {
                 shelf(this, "Je lis", reading, vm, onOpenVolume, onLongClick = { haptic(); volumeSheet = it })
                 shelf(this, "À lire ensuite", upNext, vm, onOpenVolume, onLongClick = { haptic(); volumeSheet = it })
@@ -247,19 +256,13 @@ fun HomeScreen(
             }
         }
 
-        ExtendedFloatingActionButton(
-            onClick = { scanChooser = true },
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-            icon = { Icon(Icons.Rounded.QrCodeScanner, null) },
-            text = { Text("Scanner") },
-            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)
+        // Bouton Scanner dépliable : deux petits boutons apparaissent au-dessus (Unique / Multi)
+        ScanSpeedDial(
+            open = scanChooser, onToggle = { scanChooser = !scanChooser },
+            onSingle = { scanChooser = false; onScan() }, onMultiple = { scanChooser = false; onBatch() }
         )
     }
 
-    if (scanChooser) {
-        ScanChooserSheet(onDismiss = { scanChooser = false }, onSingle = { scanChooser = false; onScan() }, onMultiple = { scanChooser = false; onBatch() })
-    }
     seriesSheet?.let { s ->
         SeriesActionsSheet(
             s, onDismiss = { seriesSheet = null },

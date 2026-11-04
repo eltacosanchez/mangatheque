@@ -122,6 +122,21 @@ object BookLookup {
         }.getOrNull()
     }
 
+    /** Date de parution en France (année, mois, jour) d'après Place des Libraires, ou null. */
+    suspend fun releaseDate(isbn: String): java.time.LocalDate? = withContext(Dispatchers.IO) {
+        val clean = normalizeIsbn(isbn)
+        if (clean.length != 13) return@withContext null
+        runCatching {
+            val req = Request.Builder().url("https://www.placedeslibraires.fr/livre/$clean")
+                .header("User-Agent", "Mozilla/5.0 (Android) Mangatheque/1.4").build()
+            patient.newCall(req).execute().use { r ->
+                if (!r.isSuccessful) return@runCatching null
+                val html = r.body?.string().orEmpty()
+                Regex(""""datePublished"\s*:\s*"(\d{4}-\d{2}-\d{2})"""").find(html)?.groupValues?.get(1)?.let { java.time.LocalDate.parse(it) }
+            }
+        }.getOrNull()
+    }
+
     internal fun parseSummary(html: String): String? {
         val raw = Regex("""<p class="description">(.*?)</p>""", RegexOption.DOT_MATCHES_ALL).find(html)?.groupValues?.get(1) ?: return null
         val text = decode(

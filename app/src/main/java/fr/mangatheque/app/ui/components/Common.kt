@@ -126,8 +126,8 @@ fun Modifier.halftone(
 fun Modifier.mangaPanel(
     corner: Dp = 20.dp,
     background: Color = MaterialTheme.colorScheme.surface,
-    shadow: Dp = 0.dp,
-    border: Dp = 1.dp
+    shadow: Dp = MaterialTheme.extra.cardShadow,
+    border: Dp = if (MaterialTheme.extra.isDark) 1.dp else 0.5.dp
 ): Modifier {
     val shape = RoundedCornerShape(corner)
     val line = MaterialTheme.colorScheme.outlineVariant
@@ -264,7 +264,9 @@ fun SearchField(value: String, onChange: (String) -> Unit, placeholder: String, 
 fun ChoiceButton(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(99.dp)
-    val bg by animateColorAsState(if (selected) cs.primary else cs.surfaceVariant, label = "fond")
+    val dark = MaterialTheme.extra.isDark
+    // Thème clair : boutons blancs détourés ; thème sombre : boutons teintés.
+    val bg by animateColorAsState(if (selected) cs.primary else if (dark) cs.surfaceVariant else cs.surface, label = "fond")
     val fg by animateColorAsState(if (selected) cs.onPrimary else cs.onSurface, label = "texte")
     Box(
         modifier
@@ -272,6 +274,7 @@ fun ChoiceButton(label: String, selected: Boolean, onClick: () -> Unit, modifier
             .then(if (selected) Modifier.shadow(6.dp, shape, ambientColor = cs.primary, spotColor = cs.primary) else Modifier)
             .clip(shape)
             .background(bg)
+            .then(if (!selected && !dark) Modifier.border(1.dp, cs.outlineVariant, shape) else Modifier)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 9.dp)
     ) {
@@ -302,8 +305,12 @@ fun StatCard(
 ) {
     Column(
         modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .then(
+                // Clair : carte blanche avec ombre douce ; sombre : fond teinté
+                if (MaterialTheme.extra.isDark) Modifier.clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceVariant)
+                else Modifier.mangaPanel(corner = 16.dp)
+            )
+
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {

@@ -623,6 +623,59 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         fetchMissingCovers(seriesId) // les couvertures arrivent en arrière-plan
     }
 
+    // ----- Prochaines sorties en France -----
+    /** Tomes à paraître (ou sortis il y a moins de 45 jours et pas encore achetés) des séries en cours. */
+    val releases = mutableStateListOf<Release>()
+    var releasesLoading by mutableStateOf(false)
+        private set
+
+    init { loadReleasesCache() }
+
+    /** Recherche les sorties, au plus toutes les 12 heures (ou tout de suite si [force]). */
+    fun refreshReleases(force: Boolean = false) {
+        if (releasesLoading) return
+        if (!force && System.currentTimeMillis() - prefs.releasesAt < 12 * 3600_000L) return
+        releasesLoading = true
+        viewModelScope.launch {
+            try {
+                val today = java.time.LocalDate.now()
+                val found = mutableListOf<Release>()
+                for (s in repo.seriesDao.listAll().filter { it.ongoing }) {
+                    val data = repo.seriesDao.getOne(s.id) ?: continue
+                    if (data.volumes.isEmpty()) continue
+                    val known = data.volumes.map { it.isbn }.filter { BookLookup.isValidIsbn(it) }
+                    val map = editions[s.id] ?: Editions.frenchVolumes(s.title, s.publisher, known).getOrNull()?.takeIf { it.isNotEmpty() }?.also { editions[s.id] = it } ?: continue
+                    for (n in map.keys.sortedDescending().take(3)) {
+                        val isbn = map.getValue(n)
+                        val date = BookLookup.releaseDate(isbn) ?: continue
+                        val days = java.time.temporal.ChronoUnit.DAYS.between(today, date)
+                        val owned = n in data.ownedNumbers
+                        if (days >= 0 || (days >= -45 && !owned)) found += Release(s.id, s.title, n, isbn, date.toString(), owned)
+                    }
+                }
+                releases.clear(); releases.addAll(found.sortedBy { it.date })
+                prefs.releasesAt = System.currentTimeMillis()
+                prefs.releasesJson = org.json.JSONArray().apply {
+                    found.forEach { r -> put(org.json.JSONObject().put("s", r.seriesId).put("t", r.title).put("n", r.number).put("i", r.isbn).put("d", r.date).put("o", r.owned)) }
+                }.toString()
+            } finally {
+                releasesLoading = false
+            }
+        }
+    }
+
+    private fun loadReleasesCache() {
+        runCatching {
+            val arr = org.json.JSONArray(prefs.releasesJson.ifBlank { "[]" })
+            val today = java.time.LocalDate.now().toString()
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val r = Release(o.getLong("s"), o.getString("t"), o.getInt("n"), o.getString("i"), o.getString("d"), o.optBoolean("o"))
+                if (r.date >= today || !r.owned) releases.add(r)
+            }
+        }
+    }
+
     // ----- Édition française (BnF) : tomes parus, ISBN et couvertures -----
     /** Série → (numéro de tome → ISBN de l'édition française). */
     val editions = mutableStateMapOf<Long, Map<Int, String>>()
@@ -787,3 +840,6 @@ sealed class BatchState {
     data object NotFound : BatchState()
     data class Failed(val message: String) : BatchState()
 }
+
+/** Tome d'une de mes séries qui sort (ou vient de sortir) en France. [date] au format AAAA-MM-JJ. */
+data class Release(val seriesId: Long, val title: String, val number: Int, val isbn: String, val date: String, val owned: Boolean)

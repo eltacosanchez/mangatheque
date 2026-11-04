@@ -80,6 +80,15 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("storeOnlyMissing", false)
         set(v) = sp.edit().putBoolean("storeOnlyMissing", v).apply()
 
+    /** Prochaines sorties : dernière recherche (millisecondes) et résultat mis en cache (JSON). */
+    var releasesAt: Long
+        get() = sp.getLong("releasesAt", 0L)
+        set(v) = sp.edit().putLong("releasesAt", v).apply()
+
+    var releasesJson: String
+        get() = sp.getString("releasesJson", "") ?: ""
+        set(v) = sp.edit().putString("releasesJson", v).apply()
+
     var sortMode: String
         get() = sp.getString("sortMode", "") ?: ""
         set(v) = sp.edit().putString("sortMode", v).apply()

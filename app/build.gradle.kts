@@ -24,8 +24,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // ↓ À incrémenter à chaque nouvelle version publiée sur GitHub.
-        versionCode = 11
-        versionName = "1.4.1"
+        versionCode = 12
+        versionName = "1.5.0"
 
         // Dépôt GitHub par défaut pour les mises à jour ("utilisateur/depot").
         // Modifiable aussi dans l'application (Réglages) sans recompiler.

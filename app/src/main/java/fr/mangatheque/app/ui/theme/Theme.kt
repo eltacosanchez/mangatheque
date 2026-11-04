@@ -14,17 +14,19 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import fr.mangatheque.app.R
 
 /** Palette d'origine de la maquette : blanc, encre et rouge. */
 object Palette {
-    val paper = Color(0xFFF3F1EC)
+    val paper = Color(0xFFF7F6F3)
     val surface = Color(0xFFFFFFFF)
-    val ink = Color(0xFF16151A)
-    val muted = Color(0xFF6C6A72)
-    val line = Color(0xFFE2DFD8)
+    val ink = Color(0xFF18171C)
+    val muted = Color(0xFF6B6872)
+    val line = Color(0xFFE8E5E0)
     val accent = Color(0xFFE0262F)
-    val soft = Color(0xFFECE9E2)
+    val soft = Color(0xFFF0EEEA)
     val ok = Color(0xFF1F8A5B)
     val doing = Color(0xFFD98A00)
     val todo = Color(0xFF8B8893)
@@ -56,16 +58,20 @@ data class ExtraColors(
     /** Trait d'encre des cases et bordures. */
     val outline: Color,
     /** Ombre décalée façon case de planche. */
-    val shadow: Color
+    val shadow: Color,
+    /** Thème sombre ? (les cartes ont une bordure en sombre, une ombre douce en clair). */
+    val isDark: Boolean = false,
+    /** Ombre douce des cartes. */
+    val cardShadow: Dp = 0.dp
 )
 
 private val lightExtras = ExtraColors(
     Palette.ok, Palette.doing, Palette.todo, Palette.line, Palette.muted, Palette.soft,
-    Palette.accent, Color.White, Palette.ink, Palette.ink
+    Palette.accent, Color.White, Palette.ink, Palette.ink, isDark = false, cardShadow = 2.dp
 )
 private val darkExtras = ExtraColors(
     Palette.okDark, Palette.doingDark, Palette.todo, Palette.lineDark, Palette.mutedDark, Palette.softDark,
-    Palette.accentDark, Color.White, Palette.outlineDark, Color.Black
+    Palette.accentDark, Color.White, Palette.outlineDark, Color.Black, isDark = true, cardShadow = 0.dp
 )
 
 val LocalExtraColors = staticCompositionLocalOf { lightExtras }
@@ -97,7 +103,7 @@ private val light: ColorScheme = lightColorScheme(
     onSurface = Palette.ink,
     surfaceVariant = Palette.soft,
     onSurfaceVariant = Palette.muted,
-    outline = Color(0xFFC8C4BB),
+    outline = Color(0xFFCFCBC4),
     outlineVariant = Palette.line,
     surfaceContainer = Palette.surface,
     surfaceContainerLow = Palette.paper,

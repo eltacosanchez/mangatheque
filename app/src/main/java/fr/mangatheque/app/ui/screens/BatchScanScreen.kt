@@ -91,6 +91,9 @@ import fr.mangatheque.app.ui.BatchItem
 import fr.mangatheque.app.ui.BatchState
 import fr.mangatheque.app.ui.components.BarcodeCamera
 import fr.mangatheque.app.ui.components.Pill
+import fr.mangatheque.app.ui.components.bounceClick
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import fr.mangatheque.app.ui.components.ScanFrameOverlay
 import fr.mangatheque.app.ui.theme.extra
 import kotlinx.coroutines.delay
@@ -217,7 +220,7 @@ private fun BatchCamera(vm: AppViewModel, onFinish: () -> Unit) {
 
 // ------------------------------------------------------------------ Vérification
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun BatchReview(vm: AppViewModel, onBackToScan: () -> Unit, onComplete: (String) -> Unit, onCollection: () -> Unit) {
     BackHandler(onBack = onBackToScan)
@@ -229,6 +232,15 @@ private fun BatchReview(vm: AppViewModel, onBackToScan: () -> Unit, onComplete: 
     val saved = items.count { it.state is BatchState.Saved }
     var open by remember { mutableStateOf<BatchItem?>(null) }
     val saving = vm.batchSaving
+    // Après « Valider » : écran de réussite (nombre enregistré)
+    var success by rememberSaveable { mutableStateOf<Int?>(null) }
+    success?.let { n ->
+        BatchSuccess(
+            saved = n, covers = items.mapNotNull { (it.state as? BatchState.Saved)?.cover },
+            left = missing, onCollection = onCollection, onSeeLeft = { success = null }, onScanMore = { success = null; onBackToScan() }
+        )
+        return
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -247,9 +259,16 @@ private fun BatchReview(vm: AppViewModel, onBackToScan: () -> Unit, onComplete: 
                     LinearProgressIndicator(progress = { (saving.first + 1f) / saving.second }, modifier = Modifier.fillMaxWidth())
                 } else if (ready > 0 || searching > 0) {
                     Button(
-                        onClick = { vm.batchValidate { _, left -> if (left == 0) onCollection() } },
-                        enabled = ready > 0, modifier = Modifier.fillMaxWidth().height(52.dp)
-                    ) { Text(if (searching > 0) "Valider ($ready) · $searching en recherche" else "Valider ($ready)") }
+                        onClick = { vm.batchValidate { n, _ -> success = n } },
+                        enabled = ready > 0, shape = RoundedCornerShape(18.dp),
+                        modifier = Modifier.fillMaxWidth().height(56.dp)
+                    ) {
+                        Icon(Icons.Rounded.CheckCircle, null); Spacer(Modifier.width(8.dp))
+                        Text(
+                            if (searching > 0) "Valider $ready livre${if (ready > 1) "s" else ""} · $searching en recherche" else "Valider $ready livre${if (ready > 1) "s" else ""}",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                    }
                     TextButton(onClick = onBackToScan, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Continuer à scanner") }
                 } else {
                     Button(onClick = onCollection, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("Voir ma bibliothèque") }
@@ -265,26 +284,42 @@ private fun BatchReview(vm: AppViewModel, onBackToScan: () -> Unit, onComplete: 
             modifier = Modifier.fillMaxSize().padding(padding)
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
-                Column {
-                    Text(
-                        buildList {
-                            add("${items.size} livre${if (items.size > 1) "s" else ""}")
-                            if (ready > 0) add("$ready prêt${if (ready > 1) "s" else ""}")
-                            if (saved > 0) add("$saved enregistré${if (saved > 1) "s" else ""}")
-                            if (owned > 0) add("$owned déjà à toi")
-                            if (missing > 0) add("$missing à compléter")
-                        }.joinToString(" · "),
-                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                // En-tête : la pile en un coup d'œil
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)).padding(16.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text("${items.size}", style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(8.dp))
+                        Text("livre${if (items.size > 1) "s" else ""} scanné${if (items.size > 1) "s" else ""}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 4.dp))
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (ready > 0) Pill("$ready à ajouter", MaterialTheme.colorScheme.primary)
+                        if (saved > 0) Pill("$saved enregistré${if (saved > 1) "s" else ""}", MaterialTheme.extra.ok)
+                        if (owned > 0) Pill("$owned déjà à toi", MaterialTheme.extra.muted)
+                        if (missing > 0) Pill("$missing à compléter", MaterialTheme.extra.doing)
+                        if (searching > 0) Pill("$searching en recherche", MaterialTheme.extra.muted)
+                    }
+                    Spacer(Modifier.height(8.dp))
                     Text("Touche un livre pour voir sa fiche.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             items(items, key = { it.isbn }) { item ->
-                Column(Modifier.clickable { open = item }) {
-                    Thumb(item, Modifier.fillMaxWidth())
+                Column(Modifier.bounceClick { open = item }) {
+                    Box {
+                        Thumb(item, Modifier.fillMaxWidth().shadow(4.dp, RoundedCornerShape(10.dp)))
+                        tagOf(item.state)?.let { (label, color) ->
+                            Text(
+                                label, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White,
+                                modifier = Modifier.align(Alignment.TopStart).padding(6.dp).clip(RoundedCornerShape(99.dp)).background(color).padding(horizontal = 8.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
                     Spacer(Modifier.height(6.dp))
-                    Text(lineTitle(item), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(lineState(item.state), style = MaterialTheme.typography.bodySmall, color = stateIcon(item.state).second, maxLines = 1)
+                    Text(titleOf(item), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(numberOf(item), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                 }
             }
         }
@@ -412,5 +447,86 @@ private fun vibrateShort(context: android.content.Context) {
             (context.getSystemService(android.content.Context.VIBRATOR_MANAGER_SERVICE) as android.os.VibratorManager).defaultVibrator
         else @Suppress("DEPRECATION") context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as android.os.Vibrator
         v.vibrate(android.os.VibrationEffect.createOneShot(60, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+    }
+}
+
+/** Étiquette sur la couverture dans la page de vérification. */
+@Composable
+private fun tagOf(s: BatchState): Pair<String, Color>? = when (s) {
+    is BatchState.Ready -> if (s.needsCheck) "À vérifier" to MaterialTheme.extra.doing else if (s.knownSeries) "Ta série" to MaterialTheme.extra.ok else "Nouveau" to MaterialTheme.colorScheme.primary
+    is BatchState.Saved -> "✓" to MaterialTheme.extra.ok
+    is BatchState.Owned, is BatchState.Duplicate -> "Déjà à toi" to MaterialTheme.extra.muted
+    BatchState.NotFound -> "Introuvable" to MaterialTheme.extra.doing
+    is BatchState.Failed -> "Erreur" to MaterialTheme.colorScheme.error
+    BatchState.Searching -> null
+}
+
+private fun titleOf(item: BatchItem): String = when (val s = item.state) {
+    is BatchState.Ready -> s.seriesTitle
+    is BatchState.Saved -> s.title
+    is BatchState.Owned -> s.title
+    is BatchState.Duplicate -> s.title
+    BatchState.Searching -> "Recherche…"
+    else -> "ISBN ${item.isbn}"
+}
+
+private fun numberOf(item: BatchItem): String = when (val s = item.state) {
+    is BatchState.Ready -> "Tome ${s.number}"
+    is BatchState.Saved -> "Tome ${s.number}"
+    is BatchState.Owned -> "Tome ${s.number}"
+    is BatchState.Duplicate -> "Tome ${s.number}"
+    BatchState.NotFound -> "À ajouter à la main"
+    is BatchState.Failed -> s.message
+    BatchState.Searching -> ""
+}
+
+/** Écran de réussite après « Valider » : coche animée, couvertures ajoutées, suite. */
+@Composable
+private fun BatchSuccess(saved: Int, covers: List<String>, left: Int, onCollection: () -> Unit, onSeeLeft: () -> Unit, onScanMore: () -> Unit) {
+    BackHandler(onBack = onCollection)
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { shown = true }
+    val scale by animateFloatAsState(if (shown) 1f else 0.3f, androidx.compose.animation.core.spring(dampingRatio = 0.45f, stiffness = 300f), label = "coche")
+    Column(
+        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding().navigationBarsPadding().padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
+    ) {
+        Box(
+            Modifier.size(96.dp).graphicsLayer { scaleX = scale; scaleY = scale }.clip(CircleShape).background(MaterialTheme.extra.ok),
+            contentAlignment = Alignment.Center
+        ) { Icon(Icons.Rounded.CheckCircle, null, tint = Color.White, modifier = Modifier.size(56.dp)) }
+        Spacer(Modifier.height(20.dp))
+        Text(
+            if (saved > 0) "$saved manga${if (saved > 1) "s" else ""} ajouté${if (saved > 1) "s" else ""} !" else "Rien de nouveau à ajouter",
+            style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center
+        )
+        Text("Ils sont dans ta bibliothèque.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (covers.isNotEmpty()) {
+            Spacer(Modifier.height(24.dp))
+            // Éventail de couvertures
+            Box(Modifier.height(150.dp).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                val shownCovers = covers.take(5)
+                shownCovers.forEachIndexed { i, c ->
+                    val mid = (shownCovers.size - 1) / 2f
+                    AsyncImage(
+                        File(c), null, contentScale = ContentScale.Crop,
+                        modifier = Modifier.width(84.dp).aspectRatio(2f / 3f)
+                            .graphicsLayer { translationX = (i - mid) * 52.dp.toPx(); rotationZ = (i - mid) * 7f }
+                            .shadow(6.dp, RoundedCornerShape(10.dp)).clip(RoundedCornerShape(10.dp))
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(28.dp))
+        Button(onClick = onCollection, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth().height(54.dp)) {
+            Text("Voir ma bibliothèque", style = MaterialTheme.typography.titleMedium)
+        }
+        if (left > 0) {
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = onSeeLeft, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth().height(50.dp)) {
+                Text("$left livre${if (left > 1) "s" else ""} à compléter")
+            }
+        }
+        TextButton(onClick = onScanMore) { Text("Scanner une autre pile") }
     }
 }
