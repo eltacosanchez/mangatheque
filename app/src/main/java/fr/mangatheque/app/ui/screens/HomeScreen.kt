@@ -84,7 +84,7 @@ fun HomeScreen(
         val list = all.filter { s ->
             (q.isBlank() || Repository.normalize("${s.series.title} ${s.series.author} ${s.series.publisher} ${s.series.genres}").contains(q)) &&
                 (vm.genreFilter == null || vm.genreFilter in s.series.genreList) &&
-                (vm.readFilter == null || s.overallStatus == vm.readFilter) &&
+                (vm.readFilter == null || s.volumes.any { it.status == vm.readFilter }) &&
                 (vm.ongoingFilter == null || s.series.ongoing == vm.ongoingFilter)
         }
         when (vm.sort) {
@@ -137,7 +137,7 @@ fun HomeScreen(
                     Spacer(Modifier.height(10.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         StatCard("${all.size}", "séries", Modifier.weight(1f))
-                        StatCard("$totalOwned", "tomes", Modifier.weight(1f), color = MaterialTheme.extra.blue)
+                        StatCard("$totalOwned", "tomes", Modifier.weight(1f))
                         StatCard("$totalRead", "lus", Modifier.weight(1f), color = MaterialTheme.extra.ok)
                         StatCard("$totalMissing", "manquants", Modifier.weight(1f), color = MaterialTheme.colorScheme.primary)
                     }
@@ -162,7 +162,7 @@ fun HomeScreen(
                         }
                         Spacer(Modifier.height(10.dp))
                     }
-                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         Segmented(
                             listOf(null to "Tout", ReadStatus.EN_COURS to "En cours", ReadStatus.LU to "Lus", ReadStatus.A_LIRE to "À lire"),
                             vm.readFilter, { vm.readFilter = it }

@@ -159,7 +159,7 @@ fun MangaTitle(text: String, style: TextStyle, fill: Color, outline: Color, modi
 fun Brand(first: String, accent: String, modifier: Modifier = Modifier) {
     Row(modifier, verticalAlignment = Alignment.Bottom) {
         Text(first, style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.onBackground)
-        MangaTitle(accent, MaterialTheme.typography.displayMedium, fill = MaterialTheme.extra.yellow, outline = MaterialTheme.extra.shadow)
+        MangaTitle(accent, MaterialTheme.typography.displayMedium, fill = MaterialTheme.extra.pop, outline = MaterialTheme.extra.shadow)
     }
 }
 
@@ -206,57 +206,45 @@ fun SearchField(value: String, onChange: (String) -> Unit, placeholder: String, 
     )
 }
 
-/** Puce de filtre (genre…) : jaune cerné d'encre quand elle est active. */
+/**
+ * Bouton de choix en relief (bordure + ombre décalée).
+ * Actif : rouge plein, texte blanc, légèrement « enfoncé ». Inactif : blanc, prêt à être appuyé.
+ */
 @Composable
-fun Chip(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun ChoiceButton(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val ex = MaterialTheme.extra
-    val shape = RoundedCornerShape(99.dp)
+    val pressed = if (selected) 1.5.dp else 0.dp
     Box(
         modifier
-            .clip(shape)
-            .background(if (selected) ex.yellow else MaterialTheme.colorScheme.surface)
-            .border(if (selected) 2.dp else 1.5.dp, if (selected) ex.outline else MaterialTheme.colorScheme.outline, shape)
+            .padding(end = 3.dp, bottom = 3.dp) // place pour l'ombre
+            .offset(x = pressed, y = pressed)
+            .mangaPanel(
+                corner = 99.dp,
+                background = if (selected) ex.pop else MaterialTheme.colorScheme.surface,
+                shadow = if (selected) 1.5.dp else 3.dp,
+                border = if (selected) 2.dp else 1.5.dp
+            )
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 9.dp)
+            .padding(horizontal = 16.dp, vertical = 9.dp)
     ) {
         Text(
             label, style = MaterialTheme.typography.labelLarge, maxLines = 1,
-            color = if (selected) ex.onYellow else MaterialTheme.colorScheme.onSurface,
+            color = if (selected) ex.onPop else MaterialTheme.colorScheme.onSurface,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
         )
     }
 }
 
-/** Sélecteur segmenté. */
+/** Puce de filtre (genre…). */
+@Composable
+fun Chip(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) =
+    ChoiceButton(label, selected, onClick, modifier)
+
+/** Groupe de boutons de choix (un seul actif). */
 @Composable
 fun <T> Segmented(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit, modifier: Modifier = Modifier) {
-    val ex = MaterialTheme.extra
-    val shape = RoundedCornerShape(99.dp)
-    Row(
-        modifier
-            .clip(shape)
-            .background(MaterialTheme.colorScheme.surface)
-            .border(1.5.dp, MaterialTheme.colorScheme.outline, shape)
-            .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp)
-    ) {
-        options.forEach { (value, label) ->
-            val sel = value == selected
-            Box(
-                Modifier
-                    .clip(shape)
-                    .background(if (sel) ex.yellow else Color.Transparent)
-                    .then(if (sel) Modifier.border(1.5.dp, ex.outline, shape) else Modifier)
-                    .clickable { onSelect(value) }
-                    .padding(horizontal = 12.dp, vertical = 7.dp)
-            ) {
-                Text(
-                    label, style = MaterialTheme.typography.labelLarge, maxLines = 1,
-                    color = if (sel) ex.onYellow else MaterialTheme.colorScheme.onSurface,
-                    fontWeight = if (sel) FontWeight.Bold else FontWeight.Medium
-                )
-            }
-        }
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        options.forEach { (value, label) -> ChoiceButton(label, value == selected, { onSelect(value) }) }
     }
 }
 
@@ -269,11 +257,12 @@ fun StatCard(value: String, label: String, modifier: Modifier = Modifier, color:
 }
 
 @Composable
-fun Pill(text: String, color: Color? = null, modifier: Modifier = Modifier) {
+fun Pill(text: String, color: Color? = null, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
     val c = color ?: MaterialTheme.colorScheme.onSurface
     Box(
         modifier
             .clip(RoundedCornerShape(99.dp))
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .background(if (color != null) color.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surface)
             .border(1.5.dp, if (color != null) color.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outline, RoundedCornerShape(99.dp))
             .padding(horizontal = 10.dp, vertical = 4.dp)
@@ -294,7 +283,7 @@ fun ProgressBar(read: Int, owned: Int, published: Int, modifier: Modifier = Modi
             .background(MaterialTheme.colorScheme.surfaceVariant)
     ) {
         if (read > 0) Box(Modifier.weight(read.toFloat()).height(6.dp).background(MaterialTheme.extra.ok))
-        if (rest > 0) Box(Modifier.weight(rest.toFloat()).height(6.dp).background(MaterialTheme.extra.yellow))
+        if (rest > 0) Box(Modifier.weight(rest.toFloat()).height(6.dp).background(MaterialTheme.extra.muted.copy(alpha = 0.45f)))
         if (empty > 0) Spacer(Modifier.weight(empty.toFloat()))
     }
 }
@@ -317,10 +306,10 @@ fun Panel(title: String? = null, modifier: Modifier = Modifier, content: @Compos
     Column(modifier.fillMaxWidth().mangaPanel().padding(16.dp)) {
         if (title != null) {
             Box(
-                Modifier.clip(RoundedCornerShape(6.dp)).background(ex.yellow)
+                Modifier.clip(RoundedCornerShape(6.dp)).background(ex.pop)
                     .border(1.5.dp, ex.outline, RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 2.dp)
             ) {
-                Text(title.uppercase(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ex.onYellow, letterSpacing = 1.sp)
+                Text(title.uppercase(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ex.onPop, letterSpacing = 1.sp)
             }
             Spacer(Modifier.height(12.dp))
         }

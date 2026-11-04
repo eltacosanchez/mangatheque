@@ -2,6 +2,9 @@ package fr.mangatheque.app.ui
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.DisposableEffect
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -63,9 +66,19 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
         setContent {
-            MangathequeTheme {
+            val dark = when (vm.themeMode) {
+                "clair" -> false
+                "sombre" -> true
+                else -> isSystemInDarkTheme()
+            }
+            // Icônes de la barre d'état lisibles quel que soit le thème choisi.
+            DisposableEffect(dark) {
+                val style = SystemBarStyle.auto(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT) { dark }
+                enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+                onDispose { }
+            }
+            MangathequeTheme(darkTheme = dark) {
                 MangaNav(vm)
             }
         }
@@ -135,9 +148,9 @@ fun MangaNav(vm: AppViewModel) {
                         icon = { Icon(if (selected) t.iconSelected else t.icon, t.label) },
                         label = { Text(t.label) },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.extra.onYellow,
+                            selectedIconColor = MaterialTheme.extra.onPop,
                             selectedTextColor = MaterialTheme.colorScheme.onSurface,
-                            indicatorColor = MaterialTheme.extra.yellow,
+                            indicatorColor = MaterialTheme.extra.pop,
                             unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                             unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -199,7 +212,16 @@ fun MangaNav(vm: AppViewModel) {
                         onEdit = { nav.navigate(Routes.seriesEdit(id)) },
                         onAddVolume = { vm.startManualDraft(id); nav.navigate(Routes.ADD) },
                         onScan = { nav.navigate(Routes.scan("add")) },
-                        onTakeCover = { nav.navigate(Routes.cover("series:$id")) })
+                        onTakeCover = { nav.navigate(Routes.cover("series:$id")) },
+                        onGenre = { genre ->
+                            // Retour à la collection, filtrée sur ce genre uniquement.
+                            vm.query = ""; vm.readFilter = null; vm.ongoingFilter = null
+                            vm.genreFilter = genre
+                            nav.navigate(Routes.HOME) {
+                                popUpTo(Routes.HOME) { inclusive = false }
+                                launchSingleTop = true
+                            }
+                        })
                 }
                 composable(Routes.SERIES_EDIT, arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
                     val id = entry.arguments?.getLong("id") ?: 0L

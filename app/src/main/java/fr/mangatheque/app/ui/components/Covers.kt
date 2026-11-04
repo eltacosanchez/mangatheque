@@ -97,11 +97,11 @@ fun Cover(
             Box(
                 Modifier.align(Alignment.TopEnd).padding(6.dp)
                     .clip(RoundedCornerShape(99.dp))
-                    .background(ex.yellow)
+                    .background(ex.pop)
                     .border(1.5.dp, ex.outline, RoundedCornerShape(99.dp))
                     .padding(horizontal = 8.dp, vertical = 2.dp)
             ) {
-                Text(badge, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = ex.onYellow)
+                Text(badge, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = ex.onPop)
             }
         }
     }

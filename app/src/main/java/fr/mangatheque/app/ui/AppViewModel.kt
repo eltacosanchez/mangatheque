@@ -106,6 +106,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun changeSort(mode: SortMode) { sort = mode; prefs.sortMode = mode.name }
 
+    /** Thème : "auto" (comme le téléphone), "clair" ou "sombre". */
+    var themeMode by mutableStateOf(prefs.themeMode)
+        private set
+
+    fun changeTheme(mode: String) { themeMode = mode; prefs.themeMode = mode }
+
+    init {
+        // Nettoyage unique des données des anciennes versions (faux genres, « - Édition originale »).
+        if (prefs.cleanupVersion < 1) viewModelScope.launch {
+            repo.cleanupLegacyData()
+            prefs.cleanupVersion = 1
+        }
+    }
+
     // ----- Ajout de tome -----
     var draft by mutableStateOf<AddDraft?>(null)
         private set
@@ -305,34 +319,43 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ----- Image de fond des séries -----
     private val bannerJobs = mutableSetOf<Long>()
+    /** Séries déjà complétées pendant cette session (évite de réinterroger AniList à chaque ouverture). */
+    private val infoTried = mutableSetOf<Long>()
 
     /**
-     * Cherche l'image de l'œuvre sur MyAnimeList et complète au passage les infos vides
+     * Cherche l'image de l'œuvre sur AniList et complète au passage les infos vides
      * (genres, série terminée + nombre de tomes). [manual] = demandé par l'utilisateur.
      */
     fun fetchBanner(seriesId: Long, manual: Boolean = false) {
+        if (!manual && seriesId in infoTried) return
         if (!bannerJobs.add(seriesId)) return
+        infoTried += seriesId
         viewModelScope.launch {
             try {
                 val s = repo.seriesDao.getOne(seriesId)?.series ?: return@launch
+                val wantBanner = manual || s.bannerPath == null
+                if (!wantBanner && s.genreList.isNotEmpty()) return@launch
                 val result = MangaDb.search(s.title)
                 if (result.isFailure) {
+                    infoTried -= seriesId
                     if (manual) toast("Impossible de joindre AniList, réessaie plus tard")
                     return@launch // on retentera à la prochaine ouverture
                 }
                 val info = result.getOrNull()
-                val file = info?.imageUrl?.let { Images.download(getApplication(), it, "banner") }
+                val file = if (wantBanner) info?.imageUrl?.let { Images.download(getApplication(), it, "banner") } else null
                 val fresh = repo.seriesDao.getOne(seriesId)?.series ?: return@launch
-                if (!manual && fresh.bannerPath != null) return@launch // l'utilisateur a choisi entre-temps
                 var updated = fresh
-                if (file != null) {
-                    fresh.bannerPath?.takeIf { it.isNotBlank() }?.let { runCatching { File(it).delete() } }
-                    updated = updated.copy(bannerPath = file.path)
-                } else if (!manual) {
-                    updated = updated.copy(bannerPath = "")
+                // Image de fond : seulement si l'utilisateur n'en a pas choisi une entre-temps.
+                if (wantBanner && (manual || fresh.bannerPath == null)) {
+                    if (file != null) {
+                        fresh.bannerPath?.takeIf { it.isNotBlank() }?.let { runCatching { File(it).delete() } }
+                        updated = updated.copy(bannerPath = file.path)
+                    } else if (!manual) {
+                        updated = updated.copy(bannerPath = "")
+                    }
                 }
                 if (info != null) {
-                    if (updated.genres.isBlank() && info.genres.isNotEmpty()) updated = updated.copy(genres = info.genres.joinToString(", "))
+                    if (updated.genreList.isEmpty() && info.genres.isNotEmpty()) updated = updated.copy(genres = info.genres.joinToString(", "))
                     if (updated.totalVolumes == null && info.finished == true && info.volumes != null) updated = updated.copy(totalVolumes = info.volumes, ongoing = false)
                 }
                 if (updated != fresh) repo.saveSeries(updated)

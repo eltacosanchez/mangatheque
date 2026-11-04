@@ -228,7 +228,7 @@ fun VolumeScreen(
                             IconButton(onClick = { vm.setRating(v, if (v.rating == i) 0 else i) }, modifier = Modifier.size(42.dp)) {
                                 Icon(
                                     if (i <= v.rating) Icons.Rounded.Star else Icons.Rounded.StarBorder, "$i étoiles",
-                                    tint = if (i <= v.rating) MaterialTheme.extra.yellow else MaterialTheme.colorScheme.outline, modifier = Modifier.size(32.dp)
+                                    tint = if (i <= v.rating) MaterialTheme.extra.pop else MaterialTheme.colorScheme.outline, modifier = Modifier.size(32.dp)
                                 )
                             }
                         }

@@ -213,7 +213,7 @@ fun ScanScreen(vm: AppViewModel, mode: String, onBack: () -> Unit, onIsbn: (Stri
         }, label = "lecture"
     )
     val ok = MaterialTheme.extra.ok
-    val reading = MaterialTheme.extra.yellow
+    val reading = MaterialTheme.extra.doing
     val frameColor = when {
         accepted != null -> ok
         hits > 0 -> reading

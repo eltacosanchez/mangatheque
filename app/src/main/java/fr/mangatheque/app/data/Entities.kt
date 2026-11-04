@@ -41,7 +41,14 @@ data class Series(
     val bannerPath: String? = null,
     val createdAt: Long = System.currentTimeMillis()
 ) {
-    val genreList: List<String> get() = genres.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+    val genreList: List<String> get() = genres.split(',').map { it.trim() }.filter { it.isNotEmpty() && !isJunkGenre(it) }
+
+    companion object {
+        /** Étiquettes techniques venues d'Open Library / Google (« series:ONE PIECE », « form:manga »…) : pas de vrais genres. */
+        fun isJunkGenre(g: String): Boolean =
+            g.contains(':') || g.contains('/') || g.contains("Comics", true) || g.contains("graphic", true) ||
+                g.equals("manga", true) || g.equals("fiction", true) || g.contains("Juvenile", true)
+    }
 }
 
 @Entity(

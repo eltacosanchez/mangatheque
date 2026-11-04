@@ -43,6 +43,7 @@ import fr.mangatheque.app.ui.AppViewModel
 import fr.mangatheque.app.ui.UpdateState
 import fr.mangatheque.app.ui.components.Brand
 import fr.mangatheque.app.ui.components.Panel
+import fr.mangatheque.app.ui.components.Segmented
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -68,6 +69,15 @@ fun SettingsScreen(vm: AppViewModel) {
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Brand("Ré", "glages", Modifier.padding(top = 12.dp))
+
+        Panel("Apparence") {
+            Text("Fond de l'application", style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.height(8.dp))
+            Segmented(
+                listOf("auto" to "Comme le téléphone", "clair" to "Blanc", "sombre" to "Sombre"),
+                vm.themeMode, { vm.changeTheme(it) }
+            )
+        }
 
         Panel("Sauvegarde") {
             Text("Tout est stocké sur le téléphone. Exporte régulièrement un fichier .zip (fiches + photos) vers ton Drive, ta carte SD ou ton PC.", style = MaterialTheme.typography.bodyMedium)

@@ -82,7 +82,8 @@ fun SeriesScreen(
     onEdit: () -> Unit,
     onAddVolume: () -> Unit,
     onScan: () -> Unit,
-    onTakeCover: () -> Unit
+    onTakeCover: () -> Unit,
+    onGenre: (String) -> Unit
 ) {
     // Flux mémorisé : sinon l'écran se réabonne à la base à chaque rafraîchissement.
     val flow = remember(id) { vm.repo.observeSeries(id) }
@@ -98,8 +99,9 @@ fun SeriesScreen(
     }
 
     // Première ouverture : on cherche l'image de l'œuvre pour le fond.
-    LaunchedEffect(data.series.id, data.series.bannerPath == null) {
-        if (data.series.bannerPath == null) vm.fetchBanner(data.series.id)
+    // (et pour retrouver de vrais genres si la série n'en a pas).
+    LaunchedEffect(data.series.id, data.series.bannerPath == null, data.series.genreList.isEmpty()) {
+        if (data.series.bannerPath == null || data.series.genreList.isEmpty()) vm.fetchBanner(data.series.id)
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -160,7 +162,7 @@ fun SeriesScreen(
                                 if (data.series.genreList.isNotEmpty()) {
                                     Spacer(Modifier.height(8.dp))
                                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        data.series.genreList.forEach { Pill(it) }
+                                        data.series.genreList.forEach { g -> Pill(g, onClick = { onGenre(g) }) }
                                     }
                                 }
                             }

@@ -54,6 +54,20 @@ class Repository(private val context: Context, private val db: AppDatabase) {
         seriesDao.delete(s.series)
     }
 
+    /**
+     * Nettoyage des séries créées par les anciennes versions : faux genres retirés,
+     * « - Édition originale » enlevé du titre. Retourne le nombre de séries corrigées.
+     */
+    suspend fun cleanupLegacyData(): Int {
+        var fixed = 0
+        seriesDao.listAll().forEach { s ->
+            val genres = s.genreList.joinToString(", ")
+            val title = TitleParser.clean(s.title).ifBlank { s.title }
+            if (genres != s.genres || title != s.title) { seriesDao.update(s.copy(genres = genres, title = title)); fixed++ }
+        }
+        return fixed
+    }
+
     /** Ajoute d'un coup les tomes [from]..[to] qui ne sont pas encore dans la série. Retourne le nombre ajouté. */
     suspend fun addVolumeRange(seriesId: Long, from: Int, to: Int): Int {
         val owned = volumeDao.listForSeries(seriesId).map { it.number }.toSet()
