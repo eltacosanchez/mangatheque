@@ -1,0 +1,142 @@
+package fr.mangatheque.app.ui.theme
+
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import fr.mangatheque.app.R
+
+// Palette reprise de la maquette « Ma Mangathèque »
+object Palette {
+    val paper = Color(0xFFF3F1EC)
+    val surface = Color(0xFFFFFFFF)
+    val ink = Color(0xFF16151A)
+    val muted = Color(0xFF6C6A72)
+    val line = Color(0xFFE2DFD8)
+    val accent = Color(0xFFE0262F)
+    val soft = Color(0xFFECE9E2)
+    val ok = Color(0xFF1F8A5B)
+    val doing = Color(0xFFD98A00)
+    val todo = Color(0xFF8B8893)
+
+    val paperDark = Color(0xFF111015)
+    val surfaceDark = Color(0xFF1B1A21)
+    val inkDark = Color(0xFFF2F0EA)
+    val mutedDark = Color(0xFF9D9AA5)
+    val lineDark = Color(0xFF2C2A33)
+    val accentDark = Color(0xFFFF4A52)
+    val softDark = Color(0xFF24222B)
+    val okDark = Color(0xFF3FC489)
+    val doingDark = Color(0xFFF2A93B)
+}
+
+/** Couleurs « métier » non couvertes par Material (statuts, lignes). */
+data class ExtraColors(
+    val ok: Color,
+    val doing: Color,
+    val todo: Color,
+    val line: Color,
+    val muted: Color,
+    val soft: Color
+)
+
+val LocalExtraColors = staticCompositionLocalOf {
+    ExtraColors(Palette.ok, Palette.doing, Palette.todo, Palette.line, Palette.muted, Palette.soft)
+}
+
+val MaterialTheme.extra: ExtraColors
+    @Composable get() = LocalExtraColors.current
+
+val Display = FontFamily(Font(R.font.dela_gothic_one, FontWeight.Normal))
+val Body = FontFamily(
+    Font(R.font.zen_kaku_regular, FontWeight.Normal),
+    Font(R.font.zen_kaku_medium, FontWeight.Medium),
+    Font(R.font.zen_kaku_bold, FontWeight.Bold)
+)
+
+private val light: ColorScheme = lightColorScheme(
+    primary = Palette.accent,
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFFFDAD8),
+    onPrimaryContainer = Color(0xFF410006),
+    secondary = Palette.ink,
+    onSecondary = Palette.paper,
+    secondaryContainer = Palette.soft,
+    onSecondaryContainer = Palette.ink,
+    background = Palette.paper,
+    onBackground = Palette.ink,
+    surface = Palette.surface,
+    onSurface = Palette.ink,
+    surfaceVariant = Palette.soft,
+    onSurfaceVariant = Palette.muted,
+    outline = Palette.line,
+    outlineVariant = Palette.line,
+    surfaceContainer = Palette.surface,
+    surfaceContainerLow = Palette.paper,
+    surfaceContainerHigh = Palette.soft,
+    error = Palette.accent
+)
+
+private val dark: ColorScheme = darkColorScheme(
+    primary = Palette.accentDark,
+    onPrimary = Palette.ink,
+    primaryContainer = Color(0xFF6B1016),
+    onPrimaryContainer = Color(0xFFFFDAD8),
+    secondary = Palette.inkDark,
+    onSecondary = Palette.paperDark,
+    secondaryContainer = Palette.softDark,
+    onSecondaryContainer = Palette.inkDark,
+    background = Palette.paperDark,
+    onBackground = Palette.inkDark,
+    surface = Palette.surfaceDark,
+    onSurface = Palette.inkDark,
+    surfaceVariant = Palette.softDark,
+    onSurfaceVariant = Palette.mutedDark,
+    outline = Palette.lineDark,
+    outlineVariant = Palette.lineDark,
+    surfaceContainer = Palette.surfaceDark,
+    surfaceContainerLow = Palette.paperDark,
+    surfaceContainerHigh = Palette.softDark,
+    error = Palette.accentDark
+)
+
+val AppTypography = Typography(
+    displayLarge = TextStyle(fontFamily = Display, fontSize = 38.sp, lineHeight = 40.sp),
+    displayMedium = TextStyle(fontFamily = Display, fontSize = 30.sp, lineHeight = 32.sp),
+    displaySmall = TextStyle(fontFamily = Display, fontSize = 24.sp, lineHeight = 26.sp),
+    headlineLarge = TextStyle(fontFamily = Display, fontSize = 26.sp, lineHeight = 28.sp),
+    headlineMedium = TextStyle(fontFamily = Display, fontSize = 22.sp, lineHeight = 24.sp),
+    headlineSmall = TextStyle(fontFamily = Display, fontSize = 20.sp, lineHeight = 22.sp),
+    titleLarge = TextStyle(fontFamily = Body, fontWeight = FontWeight.Bold, fontSize = 20.sp, lineHeight = 26.sp),
+    titleMedium = TextStyle(fontFamily = Body, fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 22.sp),
+    titleSmall = TextStyle(fontFamily = Body, fontWeight = FontWeight.Bold, fontSize = 14.sp, lineHeight = 20.sp),
+    bodyLarge = TextStyle(fontFamily = Body, fontSize = 16.sp, lineHeight = 24.sp),
+    bodyMedium = TextStyle(fontFamily = Body, fontSize = 14.sp, lineHeight = 20.sp),
+    bodySmall = TextStyle(fontFamily = Body, fontSize = 12.sp, lineHeight = 16.sp),
+    labelLarge = TextStyle(fontFamily = Body, fontWeight = FontWeight.Bold, fontSize = 14.sp, lineHeight = 20.sp),
+    labelMedium = TextStyle(fontFamily = Body, fontWeight = FontWeight.Medium, fontSize = 12.sp, lineHeight = 16.sp),
+    labelSmall = TextStyle(fontFamily = Body, fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 16.sp)
+)
+
+@Composable
+fun MangathequeTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
+    val scheme = if (darkTheme) dark else light
+    val extras = if (darkTheme)
+        ExtraColors(Palette.okDark, Palette.doingDark, Palette.todo, Palette.lineDark, Palette.mutedDark, Palette.softDark)
+    else
+        ExtraColors(Palette.ok, Palette.doing, Palette.todo, Palette.line, Palette.muted, Palette.soft)
+
+    androidx.compose.runtime.CompositionLocalProvider(LocalExtraColors provides extras) {
+        MaterialTheme(colorScheme = scheme, typography = AppTypography, content = content)
+    }
+}

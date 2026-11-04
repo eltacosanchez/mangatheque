@@ -1,0 +1,119 @@
+package fr.mangatheque.app.data
+
+import android.content.Context
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
+import java.io.File
+
+/** Point d'accès unique aux données (base Room + fichiers photo). */
+class Repository(private val context: Context, private val db: AppDatabase) {
+
+    val seriesDao get() = db.seriesDao()
+    val volumeDao get() = db.volumeDao()
+    val momentDao get() = db.momentDao()
+
+    fun observeSeries(): Flow<List<SeriesWithVolumes>> = seriesDao.observeAll()
+    fun observeSeries(id: Long): Flow<SeriesWithVolumes?> = seriesDao.observeOne(id)
+    fun observeVolume(id: Long): Flow<Volume?> = volumeDao.observeOne(id)
+    fun observeMoments(volumeId: Long): Flow<List<Moment>> = momentDao.observeForVolume(volumeId)
+    fun observeAllMoments(): Flow<List<MomentWithContext>> = momentDao.observeAll()
+
+    suspend fun findVolumeByIsbn(isbn: String): Pair<Volume, Series>? {
+        val v = volumeDao.findByIsbn(isbn) ?: return null
+        val s = seriesDao.getOne(v.seriesId)?.series ?: return null
+        return v to s
+    }
+
+    /**
+     * Cherche la série la plus probable pour un ISBN : préfixe ISBN commun le plus long (≥ 9 chiffres),
+     * sinon titre proche. Retourne null si rien de convaincant.
+     */
+    suspend fun guessSeries(isbn: String, title: String?): Series? {
+        val all = seriesDao.listAll()
+        if (isbn.isNotBlank()) {
+            val byPrefix = all.filter { it.isbnPrefix.length >= 9 && isbn.startsWith(it.isbnPrefix) }
+                .maxByOrNull { it.isbnPrefix.length }
+            if (byPrefix != null) return byPrefix
+        }
+        if (!title.isNullOrBlank()) {
+            val norm = normalize(title)
+            all.firstOrNull { normalize(it.title) == norm }?.let { return it }
+            all.firstOrNull { norm.startsWith(normalize(it.title)) || normalize(it.title).startsWith(norm) }?.let { return it }
+        }
+        return null
+    }
+
+    suspend fun saveSeries(series: Series): Long =
+        if (series.id == 0L) seriesDao.insert(series) else { seriesDao.update(series); series.id }
+
+    suspend fun deleteSeries(s: SeriesWithVolumes) {
+        s.volumes.forEach { v -> momentDao.listAll().filter { it.volumeId == v.id }.forEach { deleteFile(it.photoPath) }; deleteFile(v.coverPath) }
+        deleteFile(s.series.coverPath)
+        seriesDao.delete(s.series)
+    }
+
+    /** Ajoute un tome et met à jour le préfixe ISBN de la série. */
+    suspend fun addVolume(volume: Volume): Long {
+        val id = volumeDao.insert(volume)
+        refreshIsbnPrefix(volume.seriesId)
+        return id
+    }
+
+    suspend fun updateVolume(volume: Volume) {
+        volumeDao.update(volume)
+        refreshIsbnPrefix(volume.seriesId)
+    }
+
+    suspend fun deleteVolume(volume: Volume) {
+        momentDao.listAll().filter { it.volumeId == volume.id }.forEach { deleteFile(it.photoPath) }
+        deleteFile(volume.coverPath)
+        volumeDao.delete(volume)
+        refreshIsbnPrefix(volume.seriesId)
+    }
+
+    suspend fun setStatus(volume: Volume, status: ReadStatus) {
+        volumeDao.update(
+            volume.copy(
+                readStatus = status.name,
+                readAt = if (status == ReadStatus.LU) (volume.readAt ?: System.currentTimeMillis()) else null
+            )
+        )
+    }
+
+    suspend fun addMoment(m: Moment): Long = momentDao.insert(m)
+    suspend fun updateMoment(m: Moment) = momentDao.update(m)
+    suspend fun deleteMoment(m: Moment) { deleteFile(m.photoPath); momentDao.delete(m) }
+
+    /** Calcule le plus long préfixe commun des ISBN des tomes de la série (9 à 12 chiffres). */
+    private suspend fun refreshIsbnPrefix(seriesId: Long) {
+        val isbns = volumeDao.listForSeries(seriesId).map { it.isbn }.filter { it.length == 13 }
+        val series = seriesDao.getOne(seriesId)?.series ?: return
+        val prefix = when (isbns.size) {
+            0 -> ""
+            1 -> isbns[0].take(10) // un seul tome : préfixe éditeur + début de référence
+            else -> {
+                var p = isbns[0]
+                for (i in isbns) p = p.commonPrefixWith(i)
+                p.take(12).let { if (it.length < 9) isbns[0].take(9) else it }
+            }
+        }
+        if (prefix != series.isbnPrefix) seriesDao.update(series.copy(isbnPrefix = prefix))
+    }
+
+    private fun deleteFile(path: String?) {
+        if (path.isNullOrBlank() || path.startsWith("http")) return
+        runCatching { File(path).delete() }
+    }
+
+    suspend fun photosDir(): File = withContext(Dispatchers.IO) {
+        File(context.filesDir, "photos").apply { mkdirs() }
+    }
+
+    companion object {
+        fun normalize(s: String): String = s.lowercase()
+            .replace(Regex("[àáâä]"), "a").replace(Regex("[éèêë]"), "e").replace(Regex("[îï]"), "i")
+            .replace(Regex("[ôö]"), "o").replace(Regex("[ùûü]"), "u").replace("ç", "c")
+            .replace(Regex("[^a-z0-9]+"), " ").trim()
+    }
+}

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Livre ouvert stylisé, blanc, centré dans la zone sûre -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30,32 C36,30 44,31 52,35 L52,78 C44,74 36,73 30,75 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M78,32 C72,30 64,31 56,35 L56,78 C64,74 72,73 78,75 Z" />
+    <path
+        android:fillColor="#F3F1EC"
+        android:pathData="M53,34 L55,34 L55,80 L53,80 Z" />
+</vector>

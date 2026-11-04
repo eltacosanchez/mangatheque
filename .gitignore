@@ -1,0 +1,17 @@
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+/build
+/app/build
+/captures
+# Les APK compilés ne vont pas dans le dépôt : on les joint à la Release GitHub.
+/releases/
+.externalNativeBuild
+.cxx
+# ⚠️ La clé de signature et ses mots de passe ne vont JAMAIS sur GitHub.
+# Garde des copies du dossier keystore/ ailleurs (clé USB, Drive) : impossible à régénérer.
+# Pour GitHub Actions, la clé est fournie via les Secrets du dépôt (voir README).
+keystore/*.jks
+keystore/keystore.properties
