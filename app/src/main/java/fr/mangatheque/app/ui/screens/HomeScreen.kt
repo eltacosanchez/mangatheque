@@ -1,7 +1,12 @@
 package fr.mangatheque.app.ui.screens
 
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material3.AlertDialog
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -105,6 +110,8 @@ fun HomeScreen(
     var menu by remember { mutableStateOf(false) }
     var sortMenu by remember { mutableStateOf(false) }
     var backupHidden by remember { mutableStateOf(false) }
+    var seriesToDelete by remember { mutableStateOf<SeriesWithVolumes?>(null) }
+    val haptic = LocalHapticFeedback.current
     val backupDue = !backupHidden && vm.backupReminderDue(totalOwned)
 
     Box(Modifier.fillMaxSize()) {
@@ -220,7 +227,28 @@ fun HomeScreen(
                 }
             }
 
-            items(filtered, key = { it.series.id }) { s -> SeriesCard(s) { onOpenSeries(s.series.id) } }
+            if (filtered.isNotEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Text(
+                        "Astuce : appui long sur un manga pour le supprimer.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            items(filtered, key = { it.series.id }) { s ->
+                SeriesCard(s, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); seriesToDelete = s }) { onOpenSeries(s.series.id) }
+            }
+        }
+
+        seriesToDelete?.let { s ->
+            AlertDialog(
+                onDismissRequest = { seriesToDelete = null },
+                title = { Text("Supprimer « ${s.series.title} » ?") },
+                text = { Text("${plural(s.volumes.size, "tome")} ${if (s.volumes.size > 1) "seront supprimés" else "sera supprimé"} de ta collection, avec les notes et les photos. C'est définitif.") },
+                confirmButton = { TextButton(onClick = { vm.deleteSeries(s) {}; seriesToDelete = null }) { Text("Supprimer", color = MaterialTheme.colorScheme.error) } },
+                dismissButton = { TextButton(onClick = { seriesToDelete = null }) { Text("Annuler") } }
+            )
         }
 
         ExtendedFloatingActionButton(
@@ -235,10 +263,11 @@ fun HomeScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun SeriesCard(s: SeriesWithVolumes, onClick: () -> Unit) {
+fun SeriesCard(s: SeriesWithVolumes, onLongClick: () -> Unit = {}, onClick: () -> Unit) {
     val last = s.sortedVolumes.lastOrNull()
-    Column(Modifier.clickable(onClick = onClick)) {
+    Column(Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)) {
         Cover(
             path = s.displayCover, title = s.series.title, number = if (s.series.coverPath == null) last?.number else null,
             publisher = s.series.publisher, seed = s.series.colorSeed,

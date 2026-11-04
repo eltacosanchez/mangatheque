@@ -165,6 +165,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     ongoing = guess?.ongoing ?: true, totalVolumes = guess?.totalVolumes?.toString() ?: "",
                     number = guess?.let { nextNumber(it.id) } ?: ""
                 )
+                fillDraftCover(clean) // le livre est inconnu, mais une librairie a peut-être sa couverture
             } else {
                 draft = d.copy(
                     lookup = LookupState.Found(book),
@@ -315,6 +316,33 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun applyCoverUri(target: String, uri: Uri) = viewModelScope.launch {
         val f = Images.importUri(getApplication(), uri, "cover")
         if (f == null) toast("Image illisible") else applyCover(target, f)
+    }
+
+    // ----- Couvertures manquantes -----
+    private fun fillDraftCover(isbn: String) = viewModelScope.launch {
+        val url = BookLookup.findCover(isbn) ?: return@launch
+        val d = draft ?: return@launch
+        if (d.isbn == isbn && d.coverPath == null && d.coverUrl == null) draft = d.copy(coverUrl = url)
+    }
+
+    /** Séries dont on a déjà cherché les couvertures manquantes pendant cette session. */
+    private val coversTried = mutableSetOf<Long>()
+
+    /** Cherche la couverture des tomes enregistrés sans image (et qui ont un ISBN). */
+    fun fetchMissingCovers(seriesId: Long) {
+        if (!coversTried.add(seriesId)) return
+        viewModelScope.launch {
+            var found = 0
+            repo.volumeDao.listForSeries(seriesId)
+                .filter { it.coverPath == null && BookLookup.isValidIsbn(it.isbn) }
+                .forEach { v ->
+                    val url = BookLookup.findCover(v.isbn) ?: return@forEach
+                    val file = Images.download(getApplication(), url) ?: return@forEach
+                    val fresh = repo.volumeDao.getOne(v.id) ?: return@forEach
+                    if (fresh.coverPath == null) { repo.updateVolume(fresh.copy(coverPath = file.path)); found++ }
+                }
+            if (found > 0) toast("$found couverture${if (found > 1) "s" else ""} retrouvée${if (found > 1) "s" else ""}")
+        }
     }
 
     // ----- Image de fond des séries -----

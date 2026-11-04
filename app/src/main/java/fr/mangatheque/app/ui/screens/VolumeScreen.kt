@@ -137,6 +137,10 @@ fun VolumeScreen(
     val prev = sorted.getOrNull(idx - 1)
     val next = sorted.getOrNull(idx + 1)
     val unreadBefore = sorted.count { it.number < v.number && it.status != ReadStatus.LU }
+    // Tome sans couverture mais avec ISBN : on retente de la trouver.
+    androidx.compose.runtime.LaunchedEffect(v.id, v.coverPath == null) {
+        if (v.coverPath == null && v.isbn.isNotBlank()) vm.fetchMissingCovers(v.seriesId)
+    }
 
     Box(Modifier.fillMaxSize()) {
         Backdrop(s.backdrop, s.series.colorSeed, height = 360.dp)
@@ -271,9 +275,13 @@ fun VolumeScreen(
                     }
                 }
 
-                Row(Modifier.fillMaxWidth().padding(bottom = 24.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     OutlinedButton(onClick = { prev?.let { onOpenVolume(it.id) } }, enabled = prev != null) { Text("← Tome ${prev?.number ?: ""}") }
                     Button(onClick = { next?.let { onOpenVolume(it.id) } }, enabled = next != null) { Text("Tome ${next?.number ?: ""} →") }
+                }
+                TextButton(onClick = { confirmDelete = true }, modifier = Modifier.padding(bottom = 24.dp)) {
+                    Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error); Spacer(Modifier.width(6.dp))
+                    Text("Supprimer ce tome de ma collection", color = MaterialTheme.colorScheme.error)
                 }
             }
         }

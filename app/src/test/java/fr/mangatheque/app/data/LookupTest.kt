@@ -64,6 +64,20 @@ class LookupTest {
         assertEquals(1, b.volumeNumber)
     }
 
+    @Test fun reseau_couvertures_epagine() = runBlocking {
+        assumeTrue(System.getenv("NET_TESTS") != null)
+        // Shield Hero T2 : Google n'a pas la couverture, ePagine oui.
+        assertNotNull(BookLookup.epagineCover("9782818940037"))
+        // ISBN inexistants : ePagine renvoie son image par défaut, qu'il faut ignorer.
+        assertNull(BookLookup.epagineCover("9780000000002"))
+        assertNull(BookLookup.epagineCover("9782999999991"))
+        val b = BookLookup.lookup("9782818940037")
+        println("Shield Hero 2 -> $b")
+        assertEquals(2, b!!.volumeNumber)
+        assertTrue(b.coverUrl!!.contains("epagine"))
+        assertNotNull(BookLookup.findCover("9782818940037"))
+    }
+
     @Test fun reseau_infos_serie_reelles() = runBlocking {
         assumeTrue(System.getenv("NET_TESTS") != null)
         for (title in listOf("One Piece", "Naruto", "Jujutsu Kaisen", "L'Attaque des Titans", "Frieren")) {

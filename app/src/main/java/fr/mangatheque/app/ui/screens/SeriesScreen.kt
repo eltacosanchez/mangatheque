@@ -3,7 +3,12 @@ package fr.mangatheque.app.ui.screens
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import fr.mangatheque.app.data.Volume
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -72,7 +77,7 @@ import fr.mangatheque.app.ui.components.StatCard
 import fr.mangatheque.app.ui.components.StatusDot
 import fr.mangatheque.app.ui.theme.extra
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun SeriesScreen(
     vm: AppViewModel,
@@ -91,6 +96,10 @@ fun SeriesScreen(
     val data = s ?: return
     var menu by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var volumeToDelete by remember { mutableStateOf<Volume?>(null) }
+    val haptic = LocalHapticFeedback.current
+    // Couvertures des tomes enregistrés sans image : on les recherche une fois.
+    LaunchedEffect(id) { vm.fetchMissingCovers(id) }
     var confirmAllRead by remember { mutableStateOf(false) }
     var addMissing by remember { mutableStateOf<Int?>(null) }
     var rangeDialog by remember { mutableStateOf(false) }
@@ -184,7 +193,12 @@ fun SeriesScreen(
                             StatCard("${data.missingNumbers.size}", "manquants", Modifier.weight(1f), color = MaterialTheme.colorScheme.primary)
                         }
                         Spacer(Modifier.height(20.dp))
-                        SectionHeader("Les tomes", "Touche un tome pour ouvrir sa fiche")
+                        SectionHeader("Les tomes")
+                        Text(
+                            "Touche un tome pour ouvrir sa fiche · appui long pour le supprimer",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 4.dp)
+                        )
                     }
                 }
 
@@ -192,7 +206,10 @@ fun SeriesScreen(
                 items((1..max).toList(), key = { it }) { n ->
                     val v = data.volumes.firstOrNull { it.number == n }
                     if (v != null) {
-                        Column(Modifier.clickable { onOpenVolume(v.id) }) {
+                        Column(Modifier.combinedClickable(
+                            onClick = { onOpenVolume(v.id) },
+                            onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); volumeToDelete = v }
+                        )) {
                             Cover(v.coverPath, data.series.title, n, data.series.publisher, data.series.colorSeed)
                             Spacer(Modifier.height(6.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -218,8 +235,25 @@ fun SeriesScreen(
                         }
                     }
                 }
+
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    TextButton(onClick = { confirmDelete = true }, modifier = Modifier.padding(top = 16.dp)) {
+                        Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error); Spacer(Modifier.width(6.dp))
+                        Text("Supprimer cette série de ma collection", color = MaterialTheme.colorScheme.error)
+                    }
+                }
             }
         }
+    }
+
+    volumeToDelete?.let { v ->
+        AlertDialog(
+            onDismissRequest = { volumeToDelete = null },
+            title = { Text("Supprimer le tome ${v.number} ?") },
+            text = { Text("Il sera retiré de « ${data.series.title} », avec sa note et ses photos de passages.") },
+            confirmButton = { TextButton(onClick = { vm.deleteVolume(v) {}; volumeToDelete = null }) { Text("Supprimer", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { TextButton(onClick = { volumeToDelete = null }) { Text("Annuler") } }
+        )
     }
 
     addMissing?.let { n ->

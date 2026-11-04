@@ -50,6 +50,8 @@ object BookLookup {
     suspend fun lookup(isbn: String, onStage: (Int) -> Unit = {}): BookInfo? = withContext(Dispatchers.IO) {
         val clean = normalizeIsbn(isbn)
         val isbn10 = toIsbn10(clean)
+        // Couverture de l'édition française en haute qualité (librairies ePagine), cherchée en parallèle.
+        val frenchCover = async { runCatching { epagineCover(clean, quick) }.getOrNull() }
         onStage(1)
         val first = coroutineScope {
             listOf(
@@ -58,7 +60,7 @@ object BookLookup {
                 async { attempt { bnf(clean, quick) } }
             ).awaitAll()
         }
-        merge(first)?.let { return@withContext it }
+        merge(first)?.let { return@withContext it.withCover(frenchCover.await()) }
 
         onStage(2)
         val second = coroutineScope {
@@ -71,9 +73,39 @@ object BookLookup {
                 async { attempt { bnf(clean, patient) } }
             ).awaitAll()
         }
-        merge(second)?.let { return@withContext it }
+        merge(second)?.let { return@withContext it.withCover(frenchCover.await() ?: runCatching { epagineCover(clean, patient) }.getOrNull()) }
         if ((first + second).all { it.isFailure }) throw IOException("Aucune source n'a répondu (pas de réseau ?)")
         null
+    }
+
+    /** La couverture ePagine (édition française, grande taille) passe avant celles de Google / Open Library. */
+    private fun BookInfo.withCover(french: String?): BookInfo = if (french != null) copy(coverUrl = french) else this
+
+    /**
+     * Cherche seulement une couverture pour un ISBN (tome ajouté sans image, ou livre introuvable ailleurs).
+     * Retourne l'adresse de l'image, ou null.
+     */
+    suspend fun findCover(isbn: String): String? = withContext(Dispatchers.IO) {
+        val clean = normalizeIsbn(isbn)
+        if (!isValidIsbn(clean)) return@withContext null
+        runCatching { epagineCover(clean, patient) }.getOrNull()
+            ?: "https://covers.openlibrary.org/b/isbn/$clean-L.jpg?default=false".takeIf { coverExists(patient, it) }
+    }
+
+    /** Taille exacte de l'image « pas de couverture » renvoyée par ePagine quand il n'a pas le livre. */
+    private const val EPAGINE_PLACEHOLDER_SIZE = 151_627L
+
+    internal fun epagineCover(isbn: String, client: OkHttpClient = patient): String? {
+        if (isbn.length != 13) return null
+        val url = "https://images.epagine.fr/${isbn.substring(10)}/${isbn}_1_75.jpg"
+        val req = Request.Builder().url(url).head().header("User-Agent", "Mangatheque/1.1 (Android)").build()
+        client.newCall(req).execute().use { r ->
+            if (!r.isSuccessful) return null
+            val len = r.header("Content-Length")?.toLongOrNull() ?: return null
+            val type = r.header("Content-Type").orEmpty()
+            if (len == EPAGINE_PLACEHOLDER_SIZE || len < 5_000 || !type.startsWith("image")) return null
+            return url
+        }
     }
 
     private inline fun attempt(block: () -> BookInfo?): Result<BookInfo?> =
