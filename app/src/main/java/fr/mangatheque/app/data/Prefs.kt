@@ -28,7 +28,17 @@ class Prefs(context: Context) {
         get() = sp.getString("skipped", "") ?: ""
         set(v) = sp.edit().putString("skipped", v).apply()
 
-    var storeLargeText: Boolean
-        get() = sp.getBoolean("storeLarge", true)
-        set(v) = sp.edit().putBoolean("storeLarge", v).apply()
+    /** Date du dernier export réussi (0 = jamais). */
+    var lastExport: Long
+        get() = sp.getLong("lastExport", 0L)
+        set(v) = sp.edit().putLong("lastExport", v).apply()
+
+    /** « Plus tard » sur le rappel de sauvegarde. */
+    var backupSnooze: Long
+        get() = sp.getLong("backupSnooze", 0L)
+        set(v) = sp.edit().putLong("backupSnooze", v).apply()
+
+    var sortMode: String
+        get() = sp.getString("sortMode", "") ?: ""
+        set(v) = sp.edit().putString("sortMode", v).apply()
 }

@@ -50,7 +50,25 @@ class Repository(private val context: Context, private val db: AppDatabase) {
     suspend fun deleteSeries(s: SeriesWithVolumes) {
         s.volumes.forEach { v -> momentDao.listAll().filter { it.volumeId == v.id }.forEach { deleteFile(it.photoPath) }; deleteFile(v.coverPath) }
         deleteFile(s.series.coverPath)
+        deleteFile(s.series.bannerPath)
         seriesDao.delete(s.series)
+    }
+
+    /** Ajoute d'un coup les tomes [from]..[to] qui ne sont pas encore dans la série. Retourne le nombre ajouté. */
+    suspend fun addVolumeRange(seriesId: Long, from: Int, to: Int): Int {
+        val owned = volumeDao.listForSeries(seriesId).map { it.number }.toSet()
+        var added = 0
+        for (n in from..to) if (n !in owned) { volumeDao.insert(Volume(seriesId = seriesId, number = n)); added++ }
+        return added
+    }
+
+    /** Marque comme lus tous les tomes jusqu'au numéro [upTo] inclus. Retourne le nombre modifié. */
+    suspend fun markReadUpTo(seriesId: Long, upTo: Int): Int {
+        var changed = 0
+        volumeDao.listForSeries(seriesId).filter { it.number <= upTo && it.status != ReadStatus.LU }.forEach {
+            setStatus(it, ReadStatus.LU); changed++
+        }
+        return changed
     }
 
     /** Ajoute un tome et met à jour le préfixe ISBN de la série. */

@@ -1,29 +1,40 @@
 package fr.mangatheque.app.ui.screens
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Size
+import android.view.MotionEvent
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.camera.core.resolutionselector.ResolutionSelector
-import androidx.camera.core.resolutionselector.ResolutionStrategy
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ExperimentalGetImage
+import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
+import androidx.camera.core.SurfaceOrientedMeteringPointFactory
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -33,7 +44,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -43,9 +53,9 @@ import androidx.compose.material.icons.rounded.FlashOn
 import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -54,16 +64,23 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -76,7 +93,17 @@ import fr.mangatheque.app.data.Series
 import fr.mangatheque.app.data.Volume
 import fr.mangatheque.app.ui.AppViewModel
 import fr.mangatheque.app.ui.components.ranges
+import fr.mangatheque.app.ui.theme.extra
+import kotlinx.coroutines.delay
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import kotlin.math.abs
+
+/** Nombre de lectures identiques exigées avant de valider un code (évite les mauvaises lectures). */
+private const val REQUIRED_HITS = 4
+/** Durée minimale pendant laquelle le code doit rester lisible (ms). */
+private const val MIN_STABLE_MS = 450L
+private const val FRAME_HEIGHT_DP = 170
 
 /**
  * Scanner de code-barres ISBN (EAN-13).
@@ -84,10 +111,12 @@ import java.util.concurrent.Executors
  * mode = "check" : mode magasin, on dit juste si on l'a déjà (et quels tomes manquent).
  */
 @OptIn(ExperimentalGetImage::class)
+@SuppressLint("ClickableViewAccessibility")
 @Composable
 fun ScanScreen(vm: AppViewModel, mode: String, onBack: () -> Unit, onIsbn: (String) -> Unit, onOpenSeries: (Long) -> Unit) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current
+    val onIsbnLatest by rememberUpdatedState(onIsbn)
     var granted by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
     val askPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
     LaunchedEffect(Unit) { if (!granted) askPermission.launch(Manifest.permission.CAMERA) }
@@ -95,33 +124,72 @@ fun ScanScreen(vm: AppViewModel, mode: String, onBack: () -> Unit, onIsbn: (Stri
     var manual by remember { mutableStateOf(false) }
     var manualText by remember { mutableStateOf("") }
     var torch by remember { mutableStateOf(false) }
-    var lastCode by remember { mutableStateOf<String?>(null) }
-    var checkResult by remember { mutableStateOf<CheckResult?>(null) }
-    var checking by remember { mutableStateOf(false) }
-    var camera by remember { mutableStateOf<androidx.camera.core.Camera?>(null) }
-    val executor = remember { Executors.newSingleThreadExecutor() }
-    // Un ISBN est toujours un EAN-13 : ne chercher que ce format rend la détection plus rapide.
-    val scanner = remember { BarcodeScanning.getClient(BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_EAN_13).build()) }
-    var detected by remember { mutableStateOf(false) }
-    DisposableEffect(Unit) { onDispose { executor.shutdown(); scanner.close() } }
+    var zoom2x by remember { mutableStateOf(true) }
+    var camera by remember { mutableStateOf<Camera?>(null) }
 
-    fun handle(code: String) {
-        if (lastCode == code || checking || detected) return
-        if (!BookLookup.isValidIsbn(code)) return
-        lastCode = code
+    // État de la lecture : on attend plusieurs lectures identiques avant de valider.
+    var candidate by remember { mutableStateOf<String?>(null) }
+    var hits by remember { mutableIntStateOf(0) }
+    var firstSeen by remember { mutableLongStateOf(0L) }
+    var lastSeen by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    var accepted by remember { mutableStateOf<String?>(null) }
+    var checkResult by remember { mutableStateOf<CheckResult?>(null) }
+    var tip by remember { mutableStateOf<String?>(null) }
+
+    val executor = remember { Executors.newSingleThreadExecutor() }
+    val main = remember { Handler(Looper.getMainLooper()) }
+    val scanner = remember { BarcodeScanning.getClient(BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_EAN_13).build()) }
+    DisposableEffect(Unit) { onDispose { executor.shutdown(); scanner.close(); main.removeCallbacksAndMessages(null) } }
+
+    fun accept(code: String) {
+        accepted = code
         vibrate(context)
-        if (mode == "check") {
-            checking = true
-            checkResult = null
-        } else {
-            detected = true
-            onIsbn(code)
+        if (mode == "add") onIsbnLatest(code)
+    }
+
+    fun onFrame(code: String?) {
+        if (accepted != null || manual) return
+        val now = SystemClock.elapsedRealtime()
+        if (code == null) {
+            if (now - lastSeen > 700) { candidate = null; hits = 0 }
+            return
+        }
+        if (code != candidate) { candidate = code; hits = 1; firstSeen = now } else hits++
+        lastSeen = now
+        if (hits >= REQUIRED_HITS && now - firstSeen >= MIN_STABLE_MS) accept(code)
+    }
+
+    fun restart() {
+        candidate = null; hits = 0; accepted = null; checkResult = null
+        lastSeen = SystemClock.elapsedRealtime()
+    }
+
+    // Conseils si rien n'est lu au bout de quelques secondes.
+    LaunchedEffect(accepted) {
+        tip = null
+        while (accepted == null) {
+            delay(1000)
+            val idle = SystemClock.elapsedRealtime() - lastSeen
+            tip = when {
+                idle > 12_000 -> "Code abîmé ? Touche ⌨ en haut pour taper l'ISBN."
+                idle > 8_000 -> "Touche l'écran sur le code-barres pour faire la mise au point."
+                idle > 4_500 -> if (zoom2x) "Tiens le livre à environ 20 cm, bien à plat et éclairé." else "Rapproche un peu le livre."
+                else -> null
+            }
         }
     }
 
-    // Mode magasin : recherche locale à partir de l'ISBN
-    LaunchedEffect(lastCode, mode) {
-        val code = lastCode ?: return@LaunchedEffect
+    // Zoom ×2 par défaut : on n'a pas besoin de coller le téléphone au livre (sinon c'est flou).
+    LaunchedEffect(camera, zoom2x) {
+        camera?.let { c ->
+            val max = c.cameraInfo.zoomState.value?.maxZoomRatio ?: 1f
+            c.cameraControl.setZoomRatio(if (zoom2x) minOf(2f, max) else 1f)
+        }
+    }
+
+    // Mode magasin : recherche locale à partir de l'ISBN validé
+    LaunchedEffect(accepted, mode) {
+        val code = accepted ?: return@LaunchedEffect
         if (mode != "check") return@LaunchedEffect
         val owned = vm.repo.findVolumeByIsbn(code)
         val info = if (owned == null) runCatching { BookLookup.lookup(code) }.getOrNull() else null
@@ -136,19 +204,43 @@ fun ScanScreen(vm: AppViewModel, mode: String, onBack: () -> Unit, onIsbn: (Stri
             title = info?.rawTitle ?: owned?.let { "${it.second.title} · tome ${it.first.number}" },
             number = info?.volumeNumber ?: owned?.first?.number
         )
-        checking = false
     }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    val progress by animateFloatAsState(
+        when {
+            accepted != null -> 1f
+            else -> (hits.toFloat() / REQUIRED_HITS).coerceIn(0f, 1f)
+        }, label = "lecture"
+    )
+    val ok = MaterialTheme.extra.ok
+    val reading = MaterialTheme.extra.yellow
+    val frameColor = when {
+        accepted != null -> ok
+        hits > 0 -> reading
+        else -> Color.White
+    }
+
+    BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
+        val frameTop = (maxHeight - FRAME_HEIGHT_DP.dp) / 2
         if (granted) {
             AndroidView(
                 factory = { ctx ->
                     val view = PreviewView(ctx).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
+                    // Toucher l'écran = mise au point à cet endroit
+                    view.setOnTouchListener { v, ev ->
+                        if (ev.action == MotionEvent.ACTION_UP) {
+                            val point = view.meteringPointFactory.createPoint(ev.x, ev.y)
+                            camera?.cameraControl?.startFocusAndMetering(
+                                FocusMeteringAction.Builder(point).setAutoCancelDuration(4, TimeUnit.SECONDS).build()
+                            )
+                            v.performClick()
+                        }
+                        true
+                    }
                     val future = ProcessCameraProvider.getInstance(ctx)
                     future.addListener({
                         val provider = future.get()
                         val preview = Preview.Builder().build().also { it.surfaceProvider = view.surfaceProvider }
-                        // Résolution réduite pour l'analyse : largement suffisante pour un code-barres, et bien plus rapide.
                         val analysis = ImageAnalysis.Builder()
                             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                             .setResolutionSelector(
@@ -160,17 +252,32 @@ fun ScanScreen(vm: AppViewModel, mode: String, onBack: () -> Unit, onIsbn: (Stri
                         analysis.setAnalyzer(executor) { proxy ->
                             val media = proxy.image
                             if (media == null) { proxy.close(); return@setAnalyzer }
-                            val img = InputImage.fromMediaImage(media, proxy.imageInfo.rotationDegrees)
-                            scanner.process(img)
+                            val rot = proxy.imageInfo.rotationDegrees
+                            // Les coordonnées ML Kit sont celles de l'image remise à l'endroit.
+                            val w = (if (rot % 180 == 0) proxy.width else proxy.height).toFloat()
+                            val h = (if (rot % 180 == 0) proxy.height else proxy.width).toFloat()
+                            scanner.process(InputImage.fromMediaImage(media, rot))
                                 .addOnSuccessListener { codes ->
-                                    codes.firstOrNull { it.rawValue?.let { v -> v.startsWith("978") || v.startsWith("979") } == true }?.rawValue?.let { raw ->
-                                        view.post { handle(raw) }
-                                    }
+                                    val best = codes.mapNotNull { b ->
+                                        val raw = b.rawValue ?: return@mapNotNull null
+                                        if (raw.length != 13 || !(raw.startsWith("978") || raw.startsWith("979")) || !BookLookup.isValidIsbn(raw)) return@mapNotNull null
+                                        val box = b.boundingBox ?: return@mapNotNull raw to 1f
+                                        val fx = box.exactCenterX() / w
+                                        val fy = box.exactCenterY() / h
+                                        // On ne garde que le code situé dans le cadre (pas celui du livre d'à côté).
+                                        if (fx !in 0.12f..0.88f || fy !in 0.28f..0.72f) null else raw to (abs(fx - 0.5f) + abs(fy - 0.5f))
+                                    }.minByOrNull { it.second }?.first
+                                    main.post { onFrame(best) }
                                 }
+                                .addOnFailureListener { main.post { onFrame(null) } }
                                 .addOnCompleteListener { proxy.close() }
                         }
                         provider.unbindAll()
-                        camera = provider.bindToLifecycle(lifecycle, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+                        val cam = provider.bindToLifecycle(lifecycle, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+                        cam.cameraControl.startFocusAndMetering(
+                            FocusMeteringAction.Builder(SurfaceOrientedMeteringPointFactory(1f, 1f).createPoint(0.5f, 0.5f)).build()
+                        )
+                        camera = cam
                     }, ContextCompat.getMainExecutor(ctx))
                     view
                 },
@@ -178,66 +285,109 @@ fun ScanScreen(vm: AppViewModel, mode: String, onBack: () -> Unit, onIsbn: (Stri
             )
         } else {
             Column(Modifier.align(Alignment.Center).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("L'appareil photo est nécessaire pour scanner le code-barres.", color = Color.White, style = MaterialTheme.typography.bodyLarge)
+                Text("L'appareil photo est nécessaire pour scanner le code-barres.", color = Color.White, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(12.dp))
                 Button(onClick = { askPermission.launch(Manifest.permission.CAMERA) }) { Text("Autoriser l'appareil photo") }
             }
         }
 
-        // Cadre de visée
-        Box(Modifier.align(Alignment.Center).fillMaxWidth(0.8f).height(150.dp).border(3.dp, Color.White.copy(alpha = 0.9f), RoundedCornerShape(16.dp)))
-        Text(
-            if (mode == "check") "Scanne le code-barres au dos : je te dis si tu l'as déjà" else "Vise le code-barres ISBN au dos du manga",
-            color = Color.White, style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.align(Alignment.Center).padding(top = 220.dp).padding(horizontal = 32.dp)
-        )
+        // Masque assombri + coins du cadre de visée (couleur = état de la lecture)
+        Canvas(Modifier.fillMaxSize()) {
+            val fw = size.width * 0.82f
+            val fh = FRAME_HEIGHT_DP.dp.toPx()
+            val left = (size.width - fw) / 2
+            val top = (size.height - fh) / 2
+            val dim = Color.Black.copy(alpha = 0.5f)
+            drawRect(dim, Offset(0f, 0f), androidx.compose.ui.geometry.Size(size.width, top))
+            drawRect(dim, Offset(0f, top + fh), androidx.compose.ui.geometry.Size(size.width, size.height - top - fh))
+            drawRect(dim, Offset(0f, top), androidx.compose.ui.geometry.Size(left, fh))
+            drawRect(dim, Offset(left + fw, top), androidx.compose.ui.geometry.Size(size.width - left - fw, fh))
+            val len = 34.dp.toPx()
+            val sw = 6.dp.toPx()
+            val corners = listOf(
+                Offset(left, top) to Offset(1f, 1f), Offset(left + fw, top) to Offset(-1f, 1f),
+                Offset(left, top + fh) to Offset(1f, -1f), Offset(left + fw, top + fh) to Offset(-1f, -1f)
+            )
+            corners.forEach { (p, d) ->
+                drawLine(frameColor, p, Offset(p.x + d.x * len, p.y), sw, StrokeCap.Round)
+                drawLine(frameColor, p, Offset(p.x, p.y + d.y * len), sw, StrokeCap.Round)
+            }
+            // Ligne de visée
+            if (accepted == null) drawLine(Color.Red.copy(alpha = 0.7f), Offset(left + 16.dp.toPx(), top + fh / 2), Offset(left + fw - 16.dp.toPx(), top + fh / 2), 2.dp.toPx())
+        }
 
-        Row(Modifier.align(Alignment.TopStart).statusBarsPadding().padding(8.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        // Jauge de lecture + consignes, sous le cadre
+        Column(
+            Modifier.align(Alignment.TopCenter).padding(top = frameTop + FRAME_HEIGHT_DP.dp + 14.dp).fillMaxWidth(0.82f),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            LinearProgressIndicator(
+                progress = { progress }, color = frameColor, trackColor = Color.White.copy(alpha = 0.25f),
+                modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                when {
+                    accepted != null -> "✓ Code lu !"
+                    hits > 0 -> "Ne bouge plus… lecture en cours"
+                    mode == "check" -> "Scanne le code-barres au dos : je te dis si tu l'as déjà"
+                    else -> "Place le code-barres ISBN dans le cadre"
+                },
+                color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center
+            )
+            tip?.let {
+                Spacer(Modifier.height(8.dp))
+                Text(it, color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
+            }
+        }
+
+        Row(Modifier.align(Alignment.TopStart).statusBarsPadding().padding(8.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Rounded.Close, "Fermer", tint = Color.White) }
-            Row {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.clip(RoundedCornerShape(99.dp)).border(1.5.dp, Color.White, RoundedCornerShape(99.dp))
+                        .clickable { zoom2x = !zoom2x }.padding(horizontal = 12.dp, vertical = 6.dp)
+                ) { Text(if (zoom2x) "×2" else "×1", color = Color.White, fontWeight = FontWeight.Bold) }
                 IconButton(onClick = { torch = !torch; camera?.cameraControl?.enableTorch(torch) }) { Icon(if (torch) Icons.Rounded.FlashOn else Icons.Rounded.FlashOff, "Lampe", tint = Color.White) }
                 IconButton(onClick = { manual = true }) { Icon(Icons.Rounded.Keyboard, "Saisir l'ISBN", tint = Color.White) }
             }
         }
 
-        if (checking || detected) {
-            Column(
-                Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp).fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surface).padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text("✓ Code détecté", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.height(6.dp))
-                Text(if (mode == "check") "Je regarde dans ta collection…" else "Recherche des infos du manga…", style = MaterialTheme.typography.bodyMedium)
-                Spacer(Modifier.height(10.dp))
-                LinearProgressIndicator(Modifier.fillMaxWidth())
-            }
-        }
-
-        checkResult?.let { r ->
+        // Panneau du bas : chargement, puis résultat (mode magasin)
+        val code = accepted
+        if (code != null) {
             Column(
                 Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp).fillMaxWidth()
                     .clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surface).padding(16.dp)
             ) {
-                Text(r.title ?: "ISBN ${r.isbn}", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(6.dp))
-                when {
-                    r.ownedVolume != null -> Text("✅ Tu l'as déjà : tome ${r.ownedVolume.number}", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleLarge)
-                    r.series != null -> {
-                        val n = r.number
-                        if (n != null && n in r.ownedNumbers) Text("✅ Tu as déjà le tome $n de « ${r.series.title} »", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleLarge)
-                        else Text("🛒 Pas encore dans ta collection" + (n?.let { " (tome $it)" } ?: ""), style = MaterialTheme.typography.titleLarge)
-                        Spacer(Modifier.height(4.dp))
-                        Text("J'ai : ${ranges(r.ownedNumbers)}", style = MaterialTheme.typography.bodyMedium)
-                        if (r.missing.isNotEmpty()) Text("Il me manque : ${ranges(r.missing)}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                val r = checkResult
+                if (mode != "check" || r == null) {
+                    Text("✓ Code détecté : $code", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.extra.ok)
+                    Spacer(Modifier.height(6.dp))
+                    Text(if (mode == "check") "Je regarde dans ta collection…" else "Recherche des infos du manga…", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(10.dp))
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                } else {
+                    Text(r.title ?: "ISBN ${r.isbn}", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(6.dp))
+                    when {
+                        r.ownedVolume != null -> Text("✅ Tu l'as déjà : tome ${r.ownedVolume.number}", color = MaterialTheme.extra.ok, style = MaterialTheme.typography.titleLarge)
+                        r.series != null -> {
+                            val n = r.number
+                            if (n != null && n in r.ownedNumbers) Text("✅ Tu as déjà le tome $n de « ${r.series.title} »", color = MaterialTheme.extra.ok, style = MaterialTheme.typography.titleLarge)
+                            else Text("🛒 Pas encore dans ta collection" + (n?.let { " (tome $it)" } ?: ""), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleLarge)
+                            Spacer(Modifier.height(4.dp))
+                            Text("J'ai : ${ranges(r.ownedNumbers)}", style = MaterialTheme.typography.bodyMedium)
+                            if (r.missing.isNotEmpty()) Text("Il me manque : ${ranges(r.missing)}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                        }
+                        else -> Text("🛒 Tu n'as aucun tome de cette série : achat sans risque de doublon.", style = MaterialTheme.typography.bodyLarge)
                     }
-                    else -> Text("🛒 Tu n'as aucun tome de cette série : achat sans risque de doublon.", style = MaterialTheme.typography.bodyLarge)
-                }
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (r.series != null) TextButton(onClick = { onOpenSeries(r.series.id) }) { Text("Voir la série") }
-                    if (r.ownedVolume == null) Button(onClick = { onIsbn(r.isbn) }) { Text("Je l'achète : ajouter") }
-                    TextButton(onClick = { checkResult = null; lastCode = null }) { Text("Scanner un autre") }
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (r.series != null) TextButton(onClick = { onOpenSeries(r.series.id) }) { Text("Voir la série") }
+                        if (r.ownedVolume == null) Button(onClick = { onIsbnLatest(r.isbn) }) { Text("J'achète : ajouter") }
+                        TextButton(onClick = { restart() }) { Text("Scanner un autre") }
+                    }
                 }
             }
         }
@@ -252,9 +402,8 @@ fun ScanScreen(vm: AppViewModel, mode: String, onBack: () -> Unit, onIsbn: (Stri
             },
             confirmButton = {
                 TextButton(onClick = {
-                    val c = BookLookup.cleanIsbn(manualText)
-                    if (BookLookup.isValidIsbn(c)) { manual = false; lastCode = null; if (mode == "add") onIsbn(c) else lastCode = c }
-                    else vm.toast("ISBN invalide")
+                    val c = BookLookup.normalizeIsbn(manualText)
+                    if (BookLookup.isValidIsbn(c)) { manual = false; accept(c) } else vm.toast("ISBN invalide")
                 }) { Text("Rechercher") }
             },
             dismissButton = { TextButton(onClick = { manual = false }) { Text("Annuler") } }
@@ -262,13 +411,13 @@ fun ScanScreen(vm: AppViewModel, mode: String, onBack: () -> Unit, onIsbn: (Stri
     }
 }
 
-/** Petite vibration de confirmation quand un code-barres est lu. */
+/** Petite vibration de confirmation quand un code-barres est validé. */
 private fun vibrate(context: Context) {
     runCatching {
         val v = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
             (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
         else @Suppress("DEPRECATION") context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        v.vibrate(VibrationEffect.createOneShot(60, VibrationEffect.DEFAULT_AMPLITUDE))
+        v.vibrate(VibrationEffect.createOneShot(70, VibrationEffect.DEFAULT_AMPLITUDE))
     }
 }
 

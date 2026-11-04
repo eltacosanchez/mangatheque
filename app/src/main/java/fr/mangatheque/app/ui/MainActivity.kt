@@ -6,8 +6,11 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import fr.mangatheque.app.ui.theme.extra
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material.icons.outlined.FavoriteBorder
@@ -98,6 +101,7 @@ private val tabs = listOf(
     Tab(Routes.SETTINGS, "Réglages", Icons.Outlined.Settings, Icons.Rounded.Settings)
 )
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MangaNav(vm: AppViewModel) {
     val nav = rememberNavController()
@@ -131,9 +135,9 @@ fun MangaNav(vm: AppViewModel) {
                         icon = { Icon(if (selected) t.iconSelected else t.icon, t.label) },
                         label = { Text(t.label) },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.primary,
-                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                            indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                            selectedIconColor = MaterialTheme.extra.onYellow,
+                            selectedTextColor = MaterialTheme.colorScheme.onSurface,
+                            indicatorColor = MaterialTheme.extra.yellow,
                             unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                             unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -142,7 +146,8 @@ fun MangaNav(vm: AppViewModel) {
             }
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        // consumeWindowInsets : évite que chaque écran rajoute une 2e marge en haut (espace vide inutile).
+        Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             NavHost(nav, startDestination = Routes.HOME) {
                 composable(Routes.HOME) {
                     HomeScreen(vm,
@@ -150,7 +155,14 @@ fun MangaNav(vm: AppViewModel) {
                         onOpenVolume = { nav.navigate(Routes.volume(it)) },
                         onScan = { nav.navigate(Routes.scan("add")) },
                         onAddManual = { vm.startManualDraft(null); nav.navigate(Routes.ADD) },
-                        onNewSeries = { nav.navigate(Routes.seriesEdit(0)) })
+                        onNewSeries = { nav.navigate(Routes.seriesEdit(0)) },
+                        onOpenSettings = {
+                            nav.navigate(Routes.SETTINGS) {
+                                popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        })
                 }
                 composable(Routes.STORE) {
                     StoreScreen(vm, onOpenSeries = { nav.navigate(Routes.series(it)) }, onScan = { nav.navigate(Routes.scan("check")) })
@@ -175,6 +187,7 @@ fun MangaNav(vm: AppViewModel) {
                     AddVolumeScreen(vm,
                         onCancel = { vm.cancelDraft(); nav.popBackStack() },
                         onSaved = { id -> nav.navigate(Routes.volume(id)) { popUpTo(Routes.ADD) { inclusive = true } } },
+                        onSavedScanNext = { nav.navigate(Routes.scan("add")) { popUpTo(Routes.ADD) { inclusive = true } } },
                         onTakeCover = { nav.navigate(Routes.cover("draft")) },
                         onScanAgain = { nav.navigate(Routes.scan("add")) { popUpTo(Routes.ADD) { inclusive = true } } })
                 }

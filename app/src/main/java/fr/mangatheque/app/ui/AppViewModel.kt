@@ -12,6 +12,7 @@ import fr.mangatheque.app.data.Backup
 import fr.mangatheque.app.data.BookInfo
 import fr.mangatheque.app.data.BookLookup
 import fr.mangatheque.app.data.Images
+import fr.mangatheque.app.data.MangaDb
 import fr.mangatheque.app.data.Moment
 import fr.mangatheque.app.data.MomentWithContext
 import fr.mangatheque.app.data.ReadStatus
@@ -20,6 +21,7 @@ import fr.mangatheque.app.data.Series
 import fr.mangatheque.app.data.SeriesWithVolumes
 import fr.mangatheque.app.data.Updater
 import fr.mangatheque.app.data.Volume
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -28,6 +30,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
+import java.io.IOException
+import java.text.DateFormat
+import java.util.Date
 
 /** Brouillon d'ajout de tome après un scan (ou une saisie manuelle). */
 data class AddDraft(
@@ -43,14 +48,17 @@ data class AddDraft(
     val ongoing: Boolean = true,
     val totalVolumes: String = "",
     val coverUrl: String? = null,        // couverture trouvée en ligne
-    val coverPath: String? = null,       // couverture prise en photo (prioritaire)
+    val coverPath: String? = null,       // couverture prise en photo / galerie (prioritaire)
+    val bannerUrl: String? = null,       // image de l'œuvre (MyAnimeList) pour le fond de la fiche
+    val seriesInfoFound: Boolean = false,
     val alreadyOwned: Pair<Volume, Series>? = null,
     val source: String = ""
 )
 
 sealed class LookupState {
     data object Idle : LookupState()
-    data object Loading : LookupState()
+    /** stage 1 = recherche rapide, 2 = recherche approfondie. */
+    data class Loading(val stage: Int = 1) : LookupState()
     data object NotFound : LookupState()
     data class Found(val info: BookInfo) : LookupState()
     data class Error(val message: String) : LookupState()
@@ -64,6 +72,13 @@ sealed class UpdateState {
     data class Downloading(val info: ReleaseInfo, val progress: Float) : UpdateState()
     data class Downloaded(val info: ReleaseInfo, val file: File) : UpdateState()
     data class Failed(val message: String) : UpdateState()
+}
+
+enum class SortMode(val label: String) {
+    TITRE("A → Z"),
+    RECENT("Ajouts récents"),
+    PROGRESSION("Progression de lecture"),
+    MANQUANTS("Tomes manquants")
 }
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
@@ -80,32 +95,53 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     fun toast(msg: String) { messages.tryEmit(msg) }
 
-    // ----- Filtres de l'accueil -----
+    // ----- Filtres et tri de l'accueil -----
     var query by mutableStateOf("")
     var genreFilter by mutableStateOf<String?>(null)
     var readFilter by mutableStateOf<ReadStatus?>(null)
     var ongoingFilter by mutableStateOf<Boolean?>(null)
     var storeQuery by mutableStateOf("")
+    var sort by mutableStateOf(SortMode.entries.firstOrNull { it.name == prefs.sortMode } ?: SortMode.TITRE)
+        private set
+
+    fun changeSort(mode: SortMode) { sort = mode; prefs.sortMode = mode.name }
 
     // ----- Ajout de tome -----
     var draft by mutableStateOf<AddDraft?>(null)
         private set
+    private var draftJob: Job? = null
 
     fun startDraft(isbn: String) {
-        val clean = BookLookup.cleanIsbn(isbn)
-        draft = AddDraft(isbn = clean, lookup = LookupState.Loading)
-        viewModelScope.launch {
+        val clean = BookLookup.normalizeIsbn(isbn)
+        draftJob?.cancel()
+        draft = AddDraft(isbn = clean, lookup = LookupState.Loading(1))
+        draftJob = viewModelScope.launch {
             val owned = repo.findVolumeByIsbn(clean)
             if (owned != null) {
                 draft = draft?.copy(alreadyOwned = owned, lookup = LookupState.Idle, seriesId = owned.second.id,
                     seriesTitle = owned.second.title, number = owned.first.number.toString())
                 return@launch
             }
-            val info = runCatching { BookLookup.lookup(clean) }
+            val result = runCatching {
+                BookLookup.lookup(clean) { stage ->
+                    viewModelScope.launch {
+                        val d = draft
+                        if (d != null && d.isbn == clean && d.lookup is LookupState.Loading) draft = d.copy(lookup = LookupState.Loading(stage))
+                    }
+                }
+            }
             val d = draft ?: return@launch
             if (d.isbn != clean) return@launch
-            info.onFailure { e -> draft = d.copy(lookup = LookupState.Error(e.message ?: "Erreur réseau")) ; return@launch }
-            val book = info.getOrNull()
+            val error = result.exceptionOrNull()
+            if (error != null) {
+                val guess = repo.guessSeries(clean, null)
+                draft = d.copy(
+                    lookup = LookupState.Error(if (error is IOException) "pas de réseau" else (error.message ?: "erreur")),
+                    seriesId = guess?.id, seriesTitle = guess?.title ?: "", number = guess?.let { nextNumber(it.id) } ?: ""
+                )
+                return@launch
+            }
+            val book = result.getOrNull()
             val guess = repo.guessSeries(clean, book?.seriesTitle)
             if (book == null) {
                 draft = d.copy(
@@ -123,19 +159,42 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     number = book.volumeNumber?.toString() ?: (guess?.let { nextNumber(it.id) } ?: ""),
                     author = guess?.author?.ifBlank { null } ?: book.authors,
                     publisher = guess?.publisher?.ifBlank { null } ?: book.publisher,
-                    genres = guess?.genres?.ifBlank { null } ?: book.categories.joinToString(", "),
+                    genres = guess?.genres?.ifBlank { null } ?: cleanCategories(book.categories).joinToString(", "),
                     synopsis = guess?.synopsis?.ifBlank { null } ?: book.description,
                     ongoing = guess?.ongoing ?: true,
                     totalVolumes = guess?.totalVolumes?.toString() ?: "",
                     coverUrl = book.coverUrl,
                     source = book.source
                 )
+                if (guess == null && book.seriesTitle.isNotBlank()) enrichWithMangaInfo(clean, book.seriesTitle)
             }
         }
     }
 
+    /** Nouvelle série : complète genres, statut, nombre de tomes et image grâce à MyAnimeList. */
+    private fun enrichWithMangaInfo(isbn: String, title: String) = viewModelScope.launch {
+        val info = MangaDb.search(title).getOrNull() ?: return@launch
+        val d = draft ?: return@launch
+        if (d.isbn != isbn || d.seriesId != null) return@launch
+        draft = d.copy(
+            genres = if (info.genres.isNotEmpty()) info.genres.joinToString(", ") else d.genres,
+            ongoing = info.finished?.not() ?: d.ongoing,
+            totalVolumes = if (info.finished == true && info.volumes != null && d.totalVolumes.isBlank()) info.volumes.toString() else d.totalVolumes,
+            bannerUrl = info.imageUrl,
+            seriesInfoFound = true
+        )
+    }
+
+    /** Les catégories Google (« Comics & Graphic Novels / Manga ») ne sont pas des genres utiles. */
+    private fun cleanCategories(cats: List<String>): List<String> =
+        cats.filterNot {
+            it.contains("Comics", true) || it.contains("/") || it.contains(":") || it.contains("Fiction", true) ||
+                it.contains("Juvenile", true) || it.contains("manga", true) || it.contains("graphic", true)
+        }
+
     /** Démarre un ajout manuel (sans ISBN), éventuellement dans une série existante. */
     fun startManualDraft(seriesId: Long? = null) {
+        draftJob?.cancel()
         viewModelScope.launch {
             val s = seriesId?.let { repo.seriesDao.getOne(it)?.series }
             draft = AddDraft(
@@ -169,11 +228,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun cancelDraft() {
+        draftJob?.cancel()
         draft?.coverPath?.let { runCatching { File(it).delete() } }
         draft = null
     }
 
-    /** Enregistre le brouillon : crée la série si besoin, télécharge la couverture, ajoute le tome. */
+    /** Enregistre le brouillon : crée la série si besoin, télécharge couverture et image de fond, ajoute le tome. */
     fun saveDraft(onDone: (volumeId: Long) -> Unit) {
         val d = draft ?: return
         viewModelScope.launch {
@@ -191,31 +251,28 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     )
                 } ?: d.seriesId
             } else {
+                val banner = d.bannerUrl?.let { Images.download(getApplication(), it, "banner")?.path }
                 repo.saveSeries(
                     Series(
                         title = title, author = d.author.trim(), publisher = d.publisher.trim(), genres = d.genres.trim(),
                         synopsis = d.synopsis.trim(), ongoing = d.ongoing, totalVolumes = total,
-                        colorSeed = title.hashCode()
+                        colorSeed = title.hashCode(), bannerPath = banner
                     )
                 )
             }
-            // Doublon de numéro dans la série ?
-            val existing = repo.volumeDao.listForSeries(seriesId).firstOrNull { it.number == number }
-            if (existing != null) {
+            if (repo.volumeDao.listForSeries(seriesId).any { it.number == number }) {
                 toast("Le tome $number existe déjà dans « $title »")
                 return@launch
             }
             val cover = d.coverPath ?: d.coverUrl?.let { Images.download(getApplication(), it)?.path }
-            val id = repo.addVolume(
-                Volume(seriesId = seriesId, number = number, isbn = d.isbn, coverPath = cover)
-            )
+            val id = repo.addVolume(Volume(seriesId = seriesId, number = number, isbn = d.isbn, coverPath = cover))
             draft = null
             toast("Tome $number ajouté à « $title »")
             onDone(id)
         }
     }
 
-    // ----- Couverture prise en photo -----
+    // ----- Couvertures -----
     /** target : "draft", "volume:ID" ou "series:ID". */
     fun applyCover(target: String, file: File) {
         viewModelScope.launch {
@@ -240,6 +297,67 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Couverture choisie dans la galerie. */
+    fun applyCoverUri(target: String, uri: Uri) = viewModelScope.launch {
+        val f = Images.importUri(getApplication(), uri, "cover")
+        if (f == null) toast("Image illisible") else applyCover(target, f)
+    }
+
+    // ----- Image de fond des séries -----
+    private val bannerJobs = mutableSetOf<Long>()
+
+    /**
+     * Cherche l'image de l'œuvre sur MyAnimeList et complète au passage les infos vides
+     * (genres, série terminée + nombre de tomes). [manual] = demandé par l'utilisateur.
+     */
+    fun fetchBanner(seriesId: Long, manual: Boolean = false) {
+        if (!bannerJobs.add(seriesId)) return
+        viewModelScope.launch {
+            try {
+                val s = repo.seriesDao.getOne(seriesId)?.series ?: return@launch
+                val result = MangaDb.search(s.title)
+                if (result.isFailure) {
+                    if (manual) toast("Impossible de joindre AniList, réessaie plus tard")
+                    return@launch // on retentera à la prochaine ouverture
+                }
+                val info = result.getOrNull()
+                val file = info?.imageUrl?.let { Images.download(getApplication(), it, "banner") }
+                val fresh = repo.seriesDao.getOne(seriesId)?.series ?: return@launch
+                if (!manual && fresh.bannerPath != null) return@launch // l'utilisateur a choisi entre-temps
+                var updated = fresh
+                if (file != null) {
+                    fresh.bannerPath?.takeIf { it.isNotBlank() }?.let { runCatching { File(it).delete() } }
+                    updated = updated.copy(bannerPath = file.path)
+                } else if (!manual) {
+                    updated = updated.copy(bannerPath = "")
+                }
+                if (info != null) {
+                    if (updated.genres.isBlank() && info.genres.isNotEmpty()) updated = updated.copy(genres = info.genres.joinToString(", "))
+                    if (updated.totalVolumes == null && info.finished == true && info.volumes != null) updated = updated.copy(totalVolumes = info.volumes, ongoing = false)
+                }
+                if (updated != fresh) repo.saveSeries(updated)
+                if (manual) toast(if (file != null) "Image de fond trouvée" else "Aucune image trouvée pour « ${s.title} »")
+            } finally {
+                bannerJobs.remove(seriesId)
+            }
+        }
+    }
+
+    fun setBannerFromUri(seriesId: Long, uri: Uri) = viewModelScope.launch {
+        val f = Images.importUri(getApplication(), uri, "banner") ?: run { toast("Image illisible"); return@launch }
+        val s = repo.seriesDao.getOne(seriesId)?.series ?: return@launch
+        s.bannerPath?.takeIf { it.isNotBlank() }?.let { runCatching { File(it).delete() } }
+        repo.saveSeries(s.copy(bannerPath = f.path))
+        toast("Image de fond enregistrée")
+    }
+
+    fun removeBanner(seriesId: Long) = viewModelScope.launch {
+        val s = repo.seriesDao.getOne(seriesId)?.series ?: return@launch
+        s.bannerPath?.takeIf { it.isNotBlank() }?.let { runCatching { File(it).delete() } }
+        repo.saveSeries(s.copy(bannerPath = ""))
+        toast("Image de fond retirée")
+    }
+
     // ----- Tomes -----
     fun setStatus(v: Volume, s: ReadStatus) = viewModelScope.launch { repo.setStatus(v, s) }
     fun setRating(v: Volume, r: Int) = viewModelScope.launch { repo.updateVolume(v.copy(rating = r)) }
@@ -252,6 +370,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (repo.volumeDao.listForSeries(seriesId).any { it.number == number }) return@launch
         repo.addVolume(Volume(seriesId = seriesId, number = number))
         toast("Tome $number ajouté")
+    }
+
+    fun addVolumeRange(seriesId: Long, from: Int, to: Int) = viewModelScope.launch {
+        val n = repo.addVolumeRange(seriesId, from, to)
+        toast(if (n == 0) "Tu avais déjà tous ces tomes" else "$n tome${if (n > 1) "s" else ""} ajouté${if (n > 1) "s" else ""}")
+    }
+
+    fun markReadUpTo(seriesId: Long, upTo: Int) = viewModelScope.launch {
+        val n = repo.markReadUpTo(seriesId, upTo)
+        if (n > 0) toast("$n tome${if (n > 1) "s" else ""} marqué${if (n > 1) "s" else ""} comme lu${if (n > 1) "s" else ""}")
     }
 
     // ----- Séries -----
@@ -274,7 +402,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // ----- Sauvegarde -----
     fun exportTo(uri: Uri) = viewModelScope.launch {
         Backup.export(getApplication(), repo, uri)
-            .onSuccess { toast("Sauvegarde créée ($it séries)") }
+            .onSuccess { prefs.lastExport = System.currentTimeMillis(); toast("Sauvegarde créée ($it séries)") }
             .onFailure { toast("Export impossible : ${it.message}") }
     }
     fun importFrom(uri: Uri) = viewModelScope.launch {
@@ -282,6 +410,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             .onSuccess { toast("Collection restaurée ($it séries)") }
             .onFailure { toast("Import impossible : ${it.message}") }
     }
+
+    fun lastExportLabel(): String =
+        prefs.lastExport.takeIf { it > 0 }?.let { DateFormat.getDateInstance(DateFormat.LONG).format(Date(it)) } ?: "jamais"
+
+    /** Rappel affiché à l'accueil si la collection n'a pas été sauvegardée depuis 30 jours. */
+    fun backupReminderDue(totalVolumes: Int): Boolean {
+        if (totalVolumes < 5) return false
+        val last = maxOf(prefs.lastExport, prefs.backupSnooze)
+        return System.currentTimeMillis() - last > 30L * 24 * 3600_000
+    }
+    fun snoozeBackupReminder() { prefs.backupSnooze = System.currentTimeMillis() }
 
     // ----- Mise à jour GitHub -----
     private val _update = MutableStateFlow<UpdateState>(UpdateState.Idle)

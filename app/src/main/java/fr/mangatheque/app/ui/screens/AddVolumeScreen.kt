@@ -1,7 +1,10 @@
 package fr.mangatheque.app.ui.screens
 
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,14 +15,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -28,6 +33,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -44,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -52,16 +59,36 @@ import fr.mangatheque.app.ui.LookupState
 import fr.mangatheque.app.ui.components.Cover
 import fr.mangatheque.app.ui.components.Panel
 import fr.mangatheque.app.ui.components.Segmented
+import fr.mangatheque.app.ui.components.SpeechBubble
 import fr.mangatheque.app.ui.theme.extra
 
 /** Fiche de vérification / correction après un scan, avant d'enregistrer le tome. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddVolumeScreen(vm: AppViewModel, onCancel: () -> Unit, onSaved: (Long) -> Unit, onTakeCover: () -> Unit, onScanAgain: () -> Unit) {
-    val d = vm.draft ?: run { onCancel(); return }
+fun AddVolumeScreen(
+    vm: AppViewModel,
+    onCancel: () -> Unit,
+    onSaved: (Long) -> Unit,
+    onSavedScanNext: () -> Unit,
+    onTakeCover: () -> Unit,
+    onScanAgain: () -> Unit
+) {
+    // Le bouton « retour » du téléphone annule proprement l'ajout (la photo prise est effacée).
+    BackHandler(onBack = onCancel)
+    val d = vm.draft
+    if (d == null) {
+        // Cas rare (appli relancée par Android) : rien à afficher, on propose de revenir.
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Button(onClick = onCancel) { Text("Retour") } }
+        return
+    }
     val allSeries by vm.series.collectAsStateWithLifecycle()
     var seriesMenu by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
+    val pickCover = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) vm.applyCoverUri("draft", uri)
+    }
+    val loading = d.lookup is LookupState.Loading
+    val canSave = !saving && !loading && d.seriesTitle.isNotBlank() && d.number.toIntOrNull() != null
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -79,20 +106,27 @@ fun AddVolumeScreen(vm: AppViewModel, onCancel: () -> Unit, onSaved: (Long) -> U
         ) {
             // ----- État de la recherche -----
             when (val l = d.lookup) {
-                LookupState.Loading -> Panel {
+                is LookupState.Loading -> Panel {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(Modifier.width(28.dp).height(28.dp), strokeWidth = 3.dp); Spacer(Modifier.width(12.dp))
+                        CircularProgressIndicator(Modifier.size(30.dp), strokeWidth = 3.dp, color = if (l.stage == 1) MaterialTheme.colorScheme.primary else MaterialTheme.extra.doing)
+                        Spacer(Modifier.width(12.dp))
                         Column {
-                            Text("Recherche en cours…", style = MaterialTheme.typography.titleMedium)
-                            Text("ISBN ${d.isbn} · Google Books et Open Library interrogés en même temps (quelques secondes).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(if (l.stage == 1) "Recherche en cours…" else "Pas trouvé du premier coup, je creuse…", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                if (l.stage == 1) "ISBN ${d.isbn} · Google Books, Open Library et la BnF interrogés en même temps."
+                                else "Recherche approfondie sur plus de sources. Ça peut prendre jusqu'à 20 secondes.",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                     Spacer(Modifier.height(10.dp))
-                    androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
+                    LinearProgressIndicator(Modifier.fillMaxWidth(), color = if (l.stage == 1) MaterialTheme.colorScheme.primary else MaterialTheme.extra.doing)
+                    Spacer(Modifier.height(6.dp))
+                    Text("Étape ${l.stage} sur 2", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                LookupState.NotFound -> Notice("ISBN ${d.isbn} introuvable en ligne. Remplis la fiche à la main : l'ISBN sera quand même gardé pour reconnaître les prochains tomes de la série.")
-                is LookupState.Error -> Notice("Pas de réseau ? (${l.message}). Tu peux remplir la fiche à la main, l'ISBN sera conservé.")
-                is LookupState.Found -> Notice("Trouvé sur ${l.info.source} : « ${l.info.rawTitle} ». Corrige si quelque chose est faux.", good = true)
+                LookupState.NotFound -> Notice("ISBN ${d.isbn} introuvable en ligne, même après une recherche approfondie. Remplis la fiche à la main : l'ISBN est gardé pour reconnaître les prochains tomes de la série.", MaterialTheme.extra.doing)
+                is LookupState.Error -> Notice("Impossible de joindre les sites de livres (${l.message}). Remplis la fiche à la main, l'ISBN est conservé.", MaterialTheme.colorScheme.primary)
+                is LookupState.Found -> Notice("Trouvé sur ${l.info.source} : « ${l.info.rawTitle} ». Corrige si quelque chose est faux.", MaterialTheme.extra.ok)
                 LookupState.Idle -> {}
             }
 
@@ -115,13 +149,16 @@ fun AddVolumeScreen(vm: AppViewModel, onCancel: () -> Unit, onSaved: (Long) -> U
                     d.seriesTitle.hashCode(), Modifier.width(120.dp)
                 )
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (d.coverPath == null && d.coverUrl == null && d.lookup !is LookupState.Loading) {
+                    if (d.coverPath == null && d.coverUrl == null && !loading) {
                         Text("Aucune couverture trouvée.", style = MaterialTheme.typography.titleSmall)
-                        Button(onClick = onTakeCover) { Icon(Icons.Rounded.PhotoCamera, null); Spacer(Modifier.width(6.dp)); Text("Prendre la couverture en photo") }
+                        Button(onClick = onTakeCover) { Icon(Icons.Rounded.PhotoCamera, null); Spacer(Modifier.width(6.dp)); Text("Prendre en photo") }
                         Text("Le recadrage se fait automatiquement sur le cadre.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
-                        Text(if (d.coverPath != null) "Couverture : ta photo" else "Couverture trouvée en ligne", style = MaterialTheme.typography.titleSmall)
-                        OutlinedButton(onClick = onTakeCover) { Icon(Icons.Rounded.PhotoCamera, null); Spacer(Modifier.width(6.dp)); Text(if (d.coverPath != null) "Reprendre la photo" else "Remplacer par une photo") }
+                        Text(if (d.coverPath != null) "Couverture : ta photo" else if (loading) "Couverture : en recherche…" else "Couverture trouvée en ligne", style = MaterialTheme.typography.titleSmall)
+                        OutlinedButton(onClick = onTakeCover) { Icon(Icons.Rounded.PhotoCamera, null); Spacer(Modifier.width(6.dp)); Text(if (d.coverPath != null) "Reprendre" else "Remplacer par une photo") }
+                    }
+                    TextButton(onClick = { pickCover.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
+                        Icon(Icons.Rounded.PhotoLibrary, null); Spacer(Modifier.width(6.dp)); Text("Choisir dans la galerie")
                     }
                     if (d.isbn.isNotBlank()) Text("ISBN ${d.isbn}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -154,6 +191,10 @@ fun AddVolumeScreen(vm: AppViewModel, onCancel: () -> Unit, onSaved: (Long) -> U
             }
 
             Panel("Infos (modifiables)") {
+                if (d.seriesInfoFound) {
+                    Text("✨ Genres, statut et image de fond complétés grâce à AniList.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.extra.ok)
+                    Spacer(Modifier.height(8.dp))
+                }
                 OutlinedTextField(d.author, { t -> vm.updateDraft { it.copy(author = t) } }, label = { Text("Auteur(s)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(d.publisher, { t -> vm.updateDraft { it.copy(publisher = t) } }, label = { Text("Éditeur") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -173,21 +214,29 @@ fun AddVolumeScreen(vm: AppViewModel, onCancel: () -> Unit, onSaved: (Long) -> U
                 OutlinedTextField(d.synopsis, { t -> vm.updateDraft { it.copy(synopsis = t) } }, label = { Text("Résumé") }, minLines = 2, maxLines = 6, modifier = Modifier.fillMaxWidth())
             }
 
-            Row(Modifier.fillMaxWidth().padding(bottom = 24.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onScanAgain) { Icon(Icons.Rounded.QrCodeScanner, null); Spacer(Modifier.width(6.dp)); Text("Rescanner") }
+            // Boutons en bas, pleine largeur : faciles à atteindre avec le pouce.
+            Column(Modifier.fillMaxWidth().padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = { saving = true; vm.saveDraft { id -> saving = false; onSaved(id) } },
-                    enabled = !saving && d.seriesTitle.isNotBlank() && d.number.toIntOrNull() != null && d.lookup !is LookupState.Loading
+                    enabled = canSave, modifier = Modifier.fillMaxWidth().height(52.dp)
                 ) { Text(if (saving) "Enregistrement…" else "Ajouter à ma collection") }
+                OutlinedButton(
+                    onClick = { saving = true; vm.saveDraft { saving = false; onSavedScanNext() } },
+                    enabled = canSave, modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) { Icon(Icons.Rounded.QrCodeScanner, null); Spacer(Modifier.width(6.dp)); Text("Ajouter et scanner le suivant") }
+                TextButton(onClick = onScanAgain, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Ce n'est pas le bon livre : rescanner") }
             }
         }
     }
 }
 
 @Composable
-private fun Notice(text: String, good: Boolean = false) {
-    val c = if (good) MaterialTheme.extra.ok else MaterialTheme.extra.doing
-    Box(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.copy(alpha = 0.12f)).border(1.dp, c.copy(alpha = 0.4f), RoundedCornerShape(12.dp)).padding(12.dp)
-    ) { Text(text, style = MaterialTheme.typography.bodyMedium) }
+private fun Notice(text: String, color: Color) {
+    SpeechBubble {
+        Row(verticalAlignment = Alignment.Top) {
+            Box(Modifier.padding(top = 6.dp).size(10.dp).clip(CircleShape).background(color))
+            Spacer(Modifier.width(10.dp))
+            Text(text, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
 }

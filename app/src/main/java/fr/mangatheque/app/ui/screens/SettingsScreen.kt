@@ -71,6 +71,8 @@ fun SettingsScreen(vm: AppViewModel) {
 
         Panel("Sauvegarde") {
             Text("Tout est stocké sur le téléphone. Exporte régulièrement un fichier .zip (fiches + photos) vers ton Drive, ta carte SD ou ton PC.", style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.height(6.dp))
+            Text("Dernière sauvegarde : ${vm.lastExportLabel()}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = {

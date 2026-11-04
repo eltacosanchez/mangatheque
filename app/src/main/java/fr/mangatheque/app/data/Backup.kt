@@ -36,6 +36,7 @@ object Backup {
                             put("genres", s.genres); put("ongoing", s.ongoing); put("totalVolumes", s.totalVolumes ?: JSONObject.NULL)
                             put("synopsis", s.synopsis); put("coverPath", fileName(s.coverPath, files) ?: JSONObject.NULL)
                             put("isbnPrefix", s.isbnPrefix); put("colorSeed", s.colorSeed); put("createdAt", s.createdAt)
+                            put("bannerPath", when (val b = s.bannerPath) { null -> JSONObject.NULL; "" -> ""; else -> fileName(b, files) ?: JSONObject.NULL })
                         })
                     }
                 })
@@ -120,6 +121,8 @@ object Backup {
                         totalVolumes = if (o.isNull("totalVolumes")) null else o.optInt("totalVolumes"),
                         synopsis = o.optString("synopsis"), coverPath = path(o.opt("coverPath")),
                         isbnPrefix = o.optString("isbnPrefix"), colorSeed = o.optInt("colorSeed"),
+                        bannerPath = if (!o.has("bannerPath") || o.isNull("bannerPath")) null
+                            else o.optString("bannerPath").let { if (it.isBlank()) "" else path(it) },
                         createdAt = o.optLong("createdAt", System.currentTimeMillis())
                     )
                 )

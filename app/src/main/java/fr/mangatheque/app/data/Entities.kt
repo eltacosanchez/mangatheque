@@ -37,6 +37,8 @@ data class Series(
     val isbnPrefix: String = "",
     /** Graine pour la couleur de couverture générée. */
     val colorSeed: Int = 0,
+    /** Image de fond de la fiche : null = à chercher automatiquement, "" = aucune, sinon chemin du fichier. */
+    val bannerPath: String? = null,
     val createdAt: Long = System.currentTimeMillis()
 ) {
     val genreList: List<String> get() = genres.split(',').map { it.trim() }.filter { it.isNotEmpty() }
@@ -116,6 +118,14 @@ data class SeriesWithVolumes(
 
     /** Couverture à afficher pour la série : la sienne, sinon celle du 1er tome qui en a une. */
     val displayCover: String? get() = series.coverPath ?: sortedVolumes.firstOrNull { it.coverPath != null }?.coverPath
+
+    /** Image de fond estompée de la fiche : l'image de l'œuvre, sinon la couverture, sinon rien. */
+    val backdrop: String?
+        get() = when (val b = series.bannerPath) {
+            "" -> null
+            null -> displayCover
+            else -> b
+        }
 }
 
 data class MomentWithContext(

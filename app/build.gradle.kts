@@ -24,8 +24,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // ↓ À incrémenter à chaque nouvelle version publiée sur GitHub.
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "1.1.0"
 
         // Dépôt GitHub par défaut pour les mises à jour ("utilisateur/depot").
         // Modifiable aussi dans l'application (Réglages) sans recompiler.
@@ -98,4 +98,7 @@ dependencies {
 
     implementation(libs.coil.compose)
     implementation(libs.okhttp)
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }

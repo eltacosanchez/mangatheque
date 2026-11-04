@@ -1,9 +1,14 @@
 package fr.mangatheque.app.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,40 +21,49 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.HideImage
+import androidx.compose.material.icons.rounded.LibraryAdd
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.QrCodeScanner
+import androidx.compose.material.icons.rounded.Wallpaper
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import fr.mangatheque.app.data.ReadStatus
 import fr.mangatheque.app.ui.AppViewModel
+import fr.mangatheque.app.ui.components.Backdrop
 import fr.mangatheque.app.ui.components.Cover
 import fr.mangatheque.app.ui.components.MissingCover
 import fr.mangatheque.app.ui.components.Pill
@@ -70,112 +84,136 @@ fun SeriesScreen(
     onScan: () -> Unit,
     onTakeCover: () -> Unit
 ) {
-    val s by vm.repo.observeSeries(id).collectAsStateWithLifecycle(initialValue = null)
+    // Flux mémorisé : sinon l'écran se réabonne à la base à chaque rafraîchissement.
+    val flow = remember(id) { vm.repo.observeSeries(id) }
+    val s by flow.collectAsStateWithLifecycle(initialValue = null)
     val data = s ?: return
     var menu by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var confirmAllRead by remember { mutableStateOf(false) }
     var addMissing by remember { mutableStateOf<Int?>(null) }
+    var rangeDialog by remember { mutableStateOf(false) }
+    val pickBanner = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) vm.setBannerFromUri(id, uri)
+    }
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        topBar = {
-            TopAppBar(
-                title = {},
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Retour") } },
-                actions = {
-                    IconButton(onClick = onEdit) { Icon(Icons.Rounded.Edit, "Modifier la série") }
-                    Box {
-                        IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Plus") }
-                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            DropdownMenuItem(text = { Text("Scanner un tome") }, leadingIcon = { Icon(Icons.Rounded.QrCodeScanner, null) }, onClick = { menu = false; onScan() })
-                            DropdownMenuItem(text = { Text("Ajouter un tome à la main") }, leadingIcon = { Icon(Icons.Rounded.Add, null) }, onClick = { menu = false; onAddVolume() })
-                            DropdownMenuItem(text = { Text("Photographier la couverture de la série") }, leadingIcon = { Icon(Icons.Rounded.PhotoCamera, null) }, onClick = { menu = false; onTakeCover() })
-                            DropdownMenuItem(text = { Text("Supprimer la série", color = MaterialTheme.colorScheme.error) }, leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) }, onClick = { menu = false; confirmDelete = true })
+    // Première ouverture : on cherche l'image de l'œuvre pour le fond.
+    LaunchedEffect(data.series.id, data.series.bannerPath == null) {
+        if (data.series.bannerPath == null) vm.fetchBanner(data.series.id)
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        Backdrop(data.backdrop, data.series.colorSeed)
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                TopAppBar(
+                    title = {},
+                    navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Retour") } },
+                    actions = {
+                        IconButton(onClick = onEdit) { Icon(Icons.Rounded.Edit, "Modifier la série") }
+                        Box {
+                            IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Plus") }
+                            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                DropdownMenuItem(text = { Text("Scanner un tome") }, leadingIcon = { Icon(Icons.Rounded.QrCodeScanner, null) }, onClick = { menu = false; onScan() })
+                                DropdownMenuItem(text = { Text("Ajouter un tome à la main") }, leadingIcon = { Icon(Icons.Rounded.Add, null) }, onClick = { menu = false; onAddVolume() })
+                                DropdownMenuItem(text = { Text("Ajouter plusieurs tomes d'un coup") }, leadingIcon = { Icon(Icons.Rounded.LibraryAdd, null) }, onClick = { menu = false; rangeDialog = true })
+                                DropdownMenuItem(text = { Text("Tout marquer comme lu") }, leadingIcon = { Icon(Icons.Rounded.DoneAll, null) }, onClick = { menu = false; confirmAllRead = true })
+                                HorizontalDivider()
+                                DropdownMenuItem(text = { Text("Image de fond : choisir dans la galerie") }, leadingIcon = { Icon(Icons.Rounded.Wallpaper, null) }, onClick = {
+                                    menu = false; pickBanner.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                })
+                                DropdownMenuItem(text = { Text("Image de fond : chercher automatiquement") }, leadingIcon = { Icon(Icons.Rounded.AutoAwesome, null) }, onClick = { menu = false; vm.fetchBanner(id, manual = true) })
+                                if (data.backdrop != null) DropdownMenuItem(text = { Text("Retirer l'image de fond") }, leadingIcon = { Icon(Icons.Rounded.HideImage, null) }, onClick = { menu = false; vm.removeBanner(id) })
+                                DropdownMenuItem(text = { Text("Photographier la couverture de la série") }, leadingIcon = { Icon(Icons.Rounded.PhotoCamera, null) }, onClick = { menu = false; onTakeCover() })
+                                HorizontalDivider()
+                                DropdownMenuItem(text = { Text("Supprimer la série", color = MaterialTheme.colorScheme.error) }, leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) }, onClick = { menu = false; confirmDelete = true })
+                            }
                         }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
-        }
-    ) { padding ->
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 92.dp),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.fillMaxSize().padding(padding)
-        ) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Column {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        Cover(
-                            data.displayCover, data.series.title, if (data.series.coverPath == null) data.sortedVolumes.lastOrNull()?.number else null,
-                            data.series.publisher, data.series.colorSeed, Modifier.width(110.dp)
-                        )
-                        Column(Modifier.weight(1f)) {
-                            Text(data.series.title, style = MaterialTheme.typography.headlineLarge)
-                            Spacer(Modifier.height(6.dp))
-                            val by = listOf(data.series.author, data.series.publisher).filter { it.isNotBlank() }.joinToString(" · ")
-                            if (by.isNotBlank()) Text(by, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Spacer(Modifier.height(8.dp))
-                            if (data.series.ongoing) Pill("Série en cours · une suite arrive", MaterialTheme.colorScheme.primary)
-                            else Pill("Série terminée", MaterialTheme.extra.ok)
-                            if (data.series.genreList.isNotEmpty()) {
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, scrolledContainerColor = MaterialTheme.colorScheme.background)
+                )
+            }
+        ) { padding ->
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 92.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxSize().padding(padding)
+            ) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Column {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Cover(
+                                data.displayCover, data.series.title, if (data.series.coverPath == null) data.sortedVolumes.lastOrNull()?.number else null,
+                                data.series.publisher, data.series.colorSeed, Modifier.width(112.dp)
+                            )
+                            Column(Modifier.weight(1f)) {
+                                Text(data.series.title, style = MaterialTheme.typography.headlineLarge)
+                                Spacer(Modifier.height(6.dp))
+                                val by = listOf(data.series.author, data.series.publisher).filter { it.isNotBlank() }.joinToString(" · ")
+                                if (by.isNotBlank()) Text(by, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Spacer(Modifier.height(8.dp))
-                                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    data.series.genreList.forEach { Pill(it) }
+                                if (data.series.ongoing) Pill("Série en cours · une suite arrive", MaterialTheme.colorScheme.primary)
+                                else Pill("Série terminée", MaterialTheme.extra.ok)
+                                if (data.series.genreList.isNotEmpty()) {
+                                    Spacer(Modifier.height(8.dp))
+                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        data.series.genreList.forEach { Pill(it) }
+                                    }
                                 }
                             }
                         }
+                        if (data.series.synopsis.isNotBlank()) {
+                            Spacer(Modifier.height(12.dp))
+                            var expanded by remember { mutableStateOf(false) }
+                            Text(
+                                data.series.synopsis, style = MaterialTheme.typography.bodyMedium,
+                                maxLines = if (expanded) Int.MAX_VALUE else 4, overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.clickable { expanded = !expanded }
+                            )
+                        }
+                        Spacer(Modifier.height(16.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            StatCard("${data.volumes.size}/${data.published}", "possédés", Modifier.weight(1f))
+                            StatCard("${data.readCount}", "lus", Modifier.weight(1f), color = MaterialTheme.extra.ok)
+                            StatCard("${data.readingCount}", "en cours", Modifier.weight(1f), color = MaterialTheme.extra.doing)
+                            StatCard("${data.missingNumbers.size}", "manquants", Modifier.weight(1f), color = MaterialTheme.colorScheme.primary)
+                        }
+                        Spacer(Modifier.height(20.dp))
+                        SectionHeader("Les tomes", "Touche un tome pour ouvrir sa fiche")
                     }
-                    if (data.series.synopsis.isNotBlank()) {
-                        Spacer(Modifier.height(12.dp))
-                        var expanded by remember { mutableStateOf(false) }
-                        Text(
-                            data.series.synopsis, style = MaterialTheme.typography.bodyMedium,
-                            maxLines = if (expanded) Int.MAX_VALUE else 4, overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.clickable { expanded = !expanded }
-                        )
-                    }
-                    Spacer(Modifier.height(16.dp))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        StatCard("${data.volumes.size} / ${data.published}", "possédés", Modifier.weight(1f))
-                        StatCard("${data.readCount}", "lus", Modifier.weight(1f))
-                        StatCard("${data.readingCount}", "en cours", Modifier.weight(1f))
-                        StatCard("${data.missingNumbers.size}", "manquants", Modifier.weight(1f))
-                    }
-                    Spacer(Modifier.height(20.dp))
-                    SectionHeader("Les tomes", "Touche un tome pour ouvrir sa fiche")
                 }
-            }
 
-            val max = maxOf(data.published, 1)
-            items((1..max).toList(), key = { it }) { n ->
-                val v = data.volumes.firstOrNull { it.number == n }
-                if (v != null) {
-                    Column(Modifier.clickable { onOpenVolume(v.id) }) {
-                        Cover(v.coverPath, data.series.title, n, data.series.publisher, data.series.colorSeed)
-                        Spacer(Modifier.height(6.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            StatusDot(v.status); Spacer(Modifier.width(5.dp))
-                            Text("T$n · ${v.status.label}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                val max = maxOf(data.published, 1)
+                items((1..max).toList(), key = { it }) { n ->
+                    val v = data.volumes.firstOrNull { it.number == n }
+                    if (v != null) {
+                        Column(Modifier.clickable { onOpenVolume(v.id) }) {
+                            Cover(v.coverPath, data.series.title, n, data.series.publisher, data.series.colorSeed)
+                            Spacer(Modifier.height(6.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                StatusDot(v.status); Spacer(Modifier.width(5.dp))
+                                Text("T$n · ${v.status.label}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    } else {
+                        Column(Modifier.clickable { addMissing = n }) {
+                            MissingCover(n)
+                            Spacer(Modifier.height(6.dp))
+                            Text("T$n · à acheter", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                         }
                     }
-                } else {
-                    Column(Modifier.clickable { addMissing = n }) {
-                        MissingCover(n)
-                        Spacer(Modifier.height(6.dp))
-                        Text("T$n · à acheter", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                    }
                 }
-            }
 
-            if (data.series.ongoing || data.series.totalVolumes == null) {
-                item {
-                    Column(Modifier.clickable { addMissing = max + 1 }) {
-                        MissingCover(max + 1)
-                        Spacer(Modifier.height(6.dp))
-                        Text("Ajouter T${max + 1}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, maxLines = 1)
+                if (data.series.ongoing || data.series.totalVolumes == null) {
+                    item {
+                        Column(Modifier.clickable { addMissing = max + 1 }) {
+                            MissingCover(max + 1)
+                            Spacer(Modifier.height(6.dp))
+                            Text("Ajouter T${max + 1}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, maxLines = 1)
+                        }
                     }
                 }
             }
@@ -189,6 +227,37 @@ fun SeriesScreen(
             text = { Text("Tu viens de l'acheter ? Ajoute-le à ta collection (tu pourras scanner son code-barres plus tard pour récupérer la couverture).") },
             confirmButton = { TextButton(onClick = { vm.addMissingVolume(id, n); addMissing = null }) { Text("Je l'ai !") } },
             dismissButton = { TextButton(onClick = { addMissing = null }) { Text("Annuler") } }
+        )
+    }
+    if (rangeDialog) {
+        val firstMissing = data.missingNumbers.firstOrNull() ?: ((data.volumes.maxOfOrNull { it.number } ?: 0) + 1)
+        var from by remember { mutableStateOf(firstMissing.toString()) }
+        var to by remember { mutableStateOf(maxOf(data.published, firstMissing).toString()) }
+        val f = from.toIntOrNull(); val t = to.toIntOrNull()
+        val valid = f != null && t != null && f in 1..999 && t in f..999 && t - f < 300
+        AlertDialog(
+            onDismissRequest = { rangeDialog = false },
+            title = { Text("Ajouter plusieurs tomes") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Pratique pour enregistrer d'un coup les tomes que tu as déjà. Ceux déjà présents sont ignorés.", style = MaterialTheme.typography.bodyMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(from, { from = it.filter { c -> c.isDigit() }.take(3) }, label = { Text("Du tome") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
+                        OutlinedTextField(to, { to = it.filter { c -> c.isDigit() }.take(3) }, label = { Text("au tome") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
+                    }
+                }
+            },
+            confirmButton = { TextButton(enabled = valid, onClick = { vm.addVolumeRange(id, f!!, t!!); rangeDialog = false }) { Text("Ajouter") } },
+            dismissButton = { TextButton(onClick = { rangeDialog = false }) { Text("Annuler") } }
+        )
+    }
+    if (confirmAllRead) {
+        AlertDialog(
+            onDismissRequest = { confirmAllRead = false },
+            title = { Text("Tout marquer comme lu ?") },
+            text = { Text("Les ${data.volumes.size} tomes de « ${data.series.title} » passeront en « Lu ».") },
+            confirmButton = { TextButton(onClick = { confirmAllRead = false; vm.markReadUpTo(id, Int.MAX_VALUE) }) { Text("Oui, tout est lu") } },
+            dismissButton = { TextButton(onClick = { confirmAllRead = false }) { Text("Annuler") } }
         )
     }
     if (confirmDelete) {

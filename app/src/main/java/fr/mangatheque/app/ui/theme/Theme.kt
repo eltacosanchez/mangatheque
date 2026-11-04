@@ -7,6 +7,7 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
@@ -16,43 +17,69 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import fr.mangatheque.app.R
 
-// Palette reprise de la maquette « Ma Mangathèque »
+/**
+ * Palette « planche de manga » : papier crème, encre, rouge vif, jaune des titres,
+ * bleu ciel et rose — plus coloré que le noir/blanc/rouge d'origine.
+ */
 object Palette {
-    val paper = Color(0xFFF3F1EC)
+    val paper = Color(0xFFFFF6E6)
     val surface = Color(0xFFFFFFFF)
-    val ink = Color(0xFF16151A)
-    val muted = Color(0xFF6C6A72)
-    val line = Color(0xFFE2DFD8)
-    val accent = Color(0xFFE0262F)
-    val soft = Color(0xFFECE9E2)
-    val ok = Color(0xFF1F8A5B)
-    val doing = Color(0xFFD98A00)
-    val todo = Color(0xFF8B8893)
+    val ink = Color(0xFF1B1622)
+    val muted = Color(0xFF6F6878)
+    val line = Color(0xFFE6DAC4)
+    val soft = Color(0xFFF6ECDA)
+    val accent = Color(0xFFE62E3F)
+    val yellow = Color(0xFFFFC83D)
+    val blue = Color(0xFF2F9BEA)
+    val pink = Color(0xFFFF6B9E)
+    val ok = Color(0xFF1F9D63)
+    val doing = Color(0xFFF29A00)
+    val todo = Color(0xFF8B8494)
 
-    val paperDark = Color(0xFF111015)
-    val surfaceDark = Color(0xFF1B1A21)
-    val inkDark = Color(0xFFF2F0EA)
-    val mutedDark = Color(0xFF9D9AA5)
-    val lineDark = Color(0xFF2C2A33)
-    val accentDark = Color(0xFFFF4A52)
-    val softDark = Color(0xFF24222B)
-    val okDark = Color(0xFF3FC489)
-    val doingDark = Color(0xFFF2A93B)
+    val paperDark = Color(0xFF14111A)
+    val surfaceDark = Color(0xFF1F1A27)
+    val inkDark = Color(0xFFF6EFE3)
+    val mutedDark = Color(0xFFA49CAF)
+    val lineDark = Color(0xFF342C40)
+    val softDark = Color(0xFF2A2333)
+    val accentDark = Color(0xFFFF4F60)
+    val yellowDark = Color(0xFFFFD25E)
+    val blueDark = Color(0xFF5DB6F5)
+    val pinkDark = Color(0xFFFF86B2)
+    val okDark = Color(0xFF45CF8E)
+    val doingDark = Color(0xFFFFB443)
+    val outlineDark = Color(0xFF5E5170)
 }
 
-/** Couleurs « métier » non couvertes par Material (statuts, lignes). */
+/** Couleurs « métier » et « manga » non couvertes par Material. */
 data class ExtraColors(
     val ok: Color,
     val doing: Color,
     val todo: Color,
     val line: Color,
     val muted: Color,
-    val soft: Color
+    val soft: Color,
+    val yellow: Color,
+    val blue: Color,
+    val pink: Color,
+    /** Trait d'encre des cases et bordures. */
+    val outline: Color,
+    /** Ombre décalée façon case de planche. */
+    val shadow: Color,
+    /** Texte posé sur du jaune. */
+    val onYellow: Color
 )
 
-val LocalExtraColors = staticCompositionLocalOf {
-    ExtraColors(Palette.ok, Palette.doing, Palette.todo, Palette.line, Palette.muted, Palette.soft)
-}
+private val lightExtras = ExtraColors(
+    Palette.ok, Palette.doing, Palette.todo, Palette.line, Palette.muted, Palette.soft,
+    Palette.yellow, Palette.blue, Palette.pink, Palette.ink, Palette.ink, Palette.ink
+)
+private val darkExtras = ExtraColors(
+    Palette.okDark, Palette.doingDark, Palette.todo, Palette.lineDark, Palette.mutedDark, Palette.softDark,
+    Palette.yellowDark, Palette.blueDark, Palette.pinkDark, Palette.outlineDark, Color.Black, Palette.ink
+)
+
+val LocalExtraColors = staticCompositionLocalOf { lightExtras }
 
 val MaterialTheme.extra: ExtraColors
     @Composable get() = LocalExtraColors.current
@@ -67,56 +94,62 @@ val Body = FontFamily(
 private val light: ColorScheme = lightColorScheme(
     primary = Palette.accent,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFFFDAD8),
-    onPrimaryContainer = Color(0xFF410006),
-    secondary = Palette.ink,
-    onSecondary = Palette.paper,
-    secondaryContainer = Palette.soft,
+    primaryContainer = Color(0xFFFFD9DC),
+    onPrimaryContainer = Color(0xFF41000A),
+    secondary = Palette.yellow,
+    onSecondary = Palette.ink,
+    secondaryContainer = Color(0xFFFFE9A8),
     onSecondaryContainer = Palette.ink,
+    tertiary = Palette.blue,
+    onTertiary = Color.White,
     background = Palette.paper,
     onBackground = Palette.ink,
     surface = Palette.surface,
     onSurface = Palette.ink,
     surfaceVariant = Palette.soft,
     onSurfaceVariant = Palette.muted,
-    outline = Palette.line,
+    outline = Color(0xFFC9B99C),
     outlineVariant = Palette.line,
     surfaceContainer = Palette.surface,
     surfaceContainerLow = Palette.paper,
     surfaceContainerHigh = Palette.soft,
+    surfaceContainerHighest = Palette.soft,
     error = Palette.accent
 )
 
 private val dark: ColorScheme = darkColorScheme(
     primary = Palette.accentDark,
     onPrimary = Palette.ink,
-    primaryContainer = Color(0xFF6B1016),
-    onPrimaryContainer = Color(0xFFFFDAD8),
-    secondary = Palette.inkDark,
-    onSecondary = Palette.paperDark,
-    secondaryContainer = Palette.softDark,
-    onSecondaryContainer = Palette.inkDark,
+    primaryContainer = Color(0xFF6B1018),
+    onPrimaryContainer = Color(0xFFFFD9DC),
+    secondary = Palette.yellowDark,
+    onSecondary = Palette.ink,
+    secondaryContainer = Color(0xFF5A4500),
+    onSecondaryContainer = Color(0xFFFFE9A8),
+    tertiary = Palette.blueDark,
+    onTertiary = Palette.ink,
     background = Palette.paperDark,
     onBackground = Palette.inkDark,
     surface = Palette.surfaceDark,
     onSurface = Palette.inkDark,
     surfaceVariant = Palette.softDark,
     onSurfaceVariant = Palette.mutedDark,
-    outline = Palette.lineDark,
+    outline = Palette.outlineDark,
     outlineVariant = Palette.lineDark,
     surfaceContainer = Palette.surfaceDark,
     surfaceContainerLow = Palette.paperDark,
     surfaceContainerHigh = Palette.softDark,
+    surfaceContainerHighest = Palette.softDark,
     error = Palette.accentDark
 )
 
 val AppTypography = Typography(
-    displayLarge = TextStyle(fontFamily = Display, fontSize = 38.sp, lineHeight = 40.sp),
-    displayMedium = TextStyle(fontFamily = Display, fontSize = 30.sp, lineHeight = 32.sp),
-    displaySmall = TextStyle(fontFamily = Display, fontSize = 24.sp, lineHeight = 26.sp),
-    headlineLarge = TextStyle(fontFamily = Display, fontSize = 26.sp, lineHeight = 28.sp),
-    headlineMedium = TextStyle(fontFamily = Display, fontSize = 22.sp, lineHeight = 24.sp),
-    headlineSmall = TextStyle(fontFamily = Display, fontSize = 20.sp, lineHeight = 22.sp),
+    displayLarge = TextStyle(fontFamily = Display, fontSize = 38.sp, lineHeight = 42.sp),
+    displayMedium = TextStyle(fontFamily = Display, fontSize = 30.sp, lineHeight = 34.sp),
+    displaySmall = TextStyle(fontFamily = Display, fontSize = 24.sp, lineHeight = 28.sp),
+    headlineLarge = TextStyle(fontFamily = Display, fontSize = 26.sp, lineHeight = 30.sp),
+    headlineMedium = TextStyle(fontFamily = Display, fontSize = 22.sp, lineHeight = 26.sp),
+    headlineSmall = TextStyle(fontFamily = Display, fontSize = 20.sp, lineHeight = 24.sp),
     titleLarge = TextStyle(fontFamily = Body, fontWeight = FontWeight.Bold, fontSize = 20.sp, lineHeight = 26.sp),
     titleMedium = TextStyle(fontFamily = Body, fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 22.sp),
     titleSmall = TextStyle(fontFamily = Body, fontWeight = FontWeight.Bold, fontSize = 14.sp, lineHeight = 20.sp),
@@ -130,13 +163,7 @@ val AppTypography = Typography(
 
 @Composable
 fun MangathequeTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
-    val scheme = if (darkTheme) dark else light
-    val extras = if (darkTheme)
-        ExtraColors(Palette.okDark, Palette.doingDark, Palette.todo, Palette.lineDark, Palette.mutedDark, Palette.softDark)
-    else
-        ExtraColors(Palette.ok, Palette.doing, Palette.todo, Palette.line, Palette.muted, Palette.soft)
-
-    androidx.compose.runtime.CompositionLocalProvider(LocalExtraColors provides extras) {
-        MaterialTheme(colorScheme = scheme, typography = AppTypography, content = content)
+    CompositionLocalProvider(LocalExtraColors provides if (darkTheme) darkExtras else lightExtras) {
+        MaterialTheme(colorScheme = if (darkTheme) dark else light, typography = AppTypography, content = content)
     }
 }

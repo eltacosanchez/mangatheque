@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -30,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AddAPhoto
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PhotoCamera
@@ -52,7 +54,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -73,7 +74,9 @@ import coil.compose.AsyncImage
 import fr.mangatheque.app.data.Moment
 import fr.mangatheque.app.data.ReadStatus
 import fr.mangatheque.app.ui.AppViewModel
+import fr.mangatheque.app.ui.components.Backdrop
 import fr.mangatheque.app.ui.components.Cover
+import fr.mangatheque.app.ui.components.MangaTitle
 import fr.mangatheque.app.ui.components.Panel
 import fr.mangatheque.app.ui.components.Pill
 import fr.mangatheque.app.ui.components.StatusDot
@@ -94,14 +97,17 @@ fun VolumeScreen(
     onTakeCover: () -> Unit
 ) {
     val context = LocalContext.current
-    val volume by vm.repo.observeVolume(id).collectAsStateWithLifecycle(initialValue = null)
+    // Flux mémorisés (sinon réabonnement à la base à chaque rafraîchissement).
+    val volumeFlow = remember(id) { vm.repo.observeVolume(id) }
+    val momentsFlow = remember(id) { vm.repo.observeMoments(id) }
+    val volume by volumeFlow.collectAsStateWithLifecycle(initialValue = null)
+    val moments by momentsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val v = volume ?: return
-    val seriesData by vm.repo.observeSeries(v.seriesId).collectAsStateWithLifecycle(initialValue = null)
+    val seriesFlow = remember(v.seriesId) { vm.repo.observeSeries(v.seriesId) }
+    val seriesData by seriesFlow.collectAsStateWithLifecycle(initialValue = null)
     val s = seriesData ?: return
-    val moments by vm.repo.observeMoments(id).collectAsStateWithLifecycle(initialValue = emptyList())
 
     var note by remember(v.id) { mutableStateOf(v.note) }
-    LaunchedEffect(v.note) { if (v.note != note && note == "") note = v.note }
     var menu by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var editInfo by remember { mutableStateOf(false) }
@@ -116,6 +122,9 @@ fun VolumeScreen(
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) momentDialogUri = uri
     }
+    val pickCover = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) vm.applyCoverUri("volume:${v.id}", uri)
+    }
     fun launchCamera() {
         val f = File(context.cacheDir, "moment_${System.currentTimeMillis()}.jpg")
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f)
@@ -127,128 +136,145 @@ fun VolumeScreen(
     val idx = sorted.indexOfFirst { it.id == v.id }
     val prev = sorted.getOrNull(idx - 1)
     val next = sorted.getOrNull(idx + 1)
+    val unreadBefore = sorted.count { it.number < v.number && it.status != ReadStatus.LU }
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        topBar = {
-            TopAppBar(
-                title = { Text(s.series.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.clickable { onOpenSeries(s.series.id) }) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Retour") } },
-                actions = {
-                    Box {
-                        IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Plus") }
-                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            DropdownMenuItem(text = { Text("Modifier numéro / ISBN") }, leadingIcon = { Icon(Icons.Rounded.Edit, null) }, onClick = { menu = false; editInfo = true })
-                            DropdownMenuItem(text = { Text("Photographier la couverture") }, leadingIcon = { Icon(Icons.Rounded.PhotoCamera, null) }, onClick = { menu = false; onTakeCover() })
-                            DropdownMenuItem(text = { Text("Supprimer ce tome", color = MaterialTheme.colorScheme.error) }, leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) }, onClick = { menu = false; confirmDelete = true })
+    Box(Modifier.fillMaxSize()) {
+        Backdrop(s.backdrop, s.series.colorSeed, height = 360.dp)
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                TopAppBar(
+                    title = { Text(s.series.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.clickable { onOpenSeries(s.series.id) }) },
+                    navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Retour") } },
+                    actions = {
+                        Box {
+                            IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Plus") }
+                            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                DropdownMenuItem(text = { Text("Modifier numéro / ISBN") }, leadingIcon = { Icon(Icons.Rounded.Edit, null) }, onClick = { menu = false; editInfo = true })
+                                DropdownMenuItem(text = { Text("Photographier la couverture") }, leadingIcon = { Icon(Icons.Rounded.PhotoCamera, null) }, onClick = { menu = false; onTakeCover() })
+                                DropdownMenuItem(text = { Text("Couverture depuis la galerie") }, leadingIcon = { Icon(Icons.Rounded.PhotoLibrary, null) }, onClick = {
+                                    menu = false; pickCover.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                })
+                                DropdownMenuItem(text = { Text("Supprimer ce tome", color = MaterialTheme.colorScheme.error) }, leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) }, onClick = { menu = false; confirmDelete = true })
+                            }
                         }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
-        }
-    ) { padding ->
-        Column(
-            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).imePadding().padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Cover(v.coverPath, s.series.title, v.number, s.series.publisher, s.series.colorSeed, Modifier.width(140.dp), corner = 12)
-                Column(Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Text("Tome ", style = MaterialTheme.typography.headlineMedium)
-                        Text("${v.number}", style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.primary)
-                    }
-                    if (v.title.isNotBlank()) Text(v.title, style = MaterialTheme.typography.titleMedium)
-                    val by = listOf(s.series.author, s.series.publisher).filter { it.isNotBlank() }.joinToString(" · ")
-                    if (by.isNotBlank()) Text(by, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(8.dp))
-                    Pill("Dans ma collection", MaterialTheme.extra.ok)
-                    if (v.isbn.isNotBlank()) {
-                        Spacer(Modifier.height(8.dp))
-                        Text("ISBN ${v.isbn}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    if (v.coverPath == null) {
-                        Spacer(Modifier.height(10.dp))
-                        OutlinedButton(onClick = onTakeCover) { Icon(Icons.Rounded.PhotoCamera, null); Spacer(Modifier.width(6.dp)); Text("Photographier la couverture") }
-                    }
-                }
-            }
-
-            Panel("Ma lecture") {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ReadStatus.entries.forEach { st ->
-                        val sel = v.status == st
-                        val c = statusColor(st)
-                        Column(
-                            Modifier.weight(1f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (sel) c.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface)
-                                .border(2.dp, if (sel) c else MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
-                                .clickable { vm.setStatus(v, st) }
-                                .padding(vertical = 12.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            StatusDot(st)
-                            Spacer(Modifier.height(4.dp))
-                            Text(st.label, style = MaterialTheme.typography.labelLarge)
-                        }
-                    }
-                }
-                if (v.status == ReadStatus.LU && v.readAt != null) {
-                    Spacer(Modifier.height(8.dp))
-                    Text("Marqué comme lu le ${DateFormat.getDateInstance().format(Date(v.readAt))}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Spacer(Modifier.height(12.dp))
-                Text("Ma note", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row {
-                    (1..5).forEach { i ->
-                        IconButton(onClick = { vm.setRating(v, if (v.rating == i) 0 else i) }, modifier = Modifier.size(40.dp)) {
-                            Icon(if (i <= v.rating) Icons.Rounded.Star else Icons.Rounded.StarBorder, "$i étoiles", tint = if (i <= v.rating) MaterialTheme.extra.doing else MaterialTheme.colorScheme.outline, modifier = Modifier.size(30.dp))
-                        }
-                    }
-                }
-            }
-
-            Panel("Ma note perso") {
-                OutlinedTextField(
-                    note, { note = it; vm.setNote(v, it) },
-                    placeholder = { Text("Ce que tu as pensé de ce tome, ton passage préféré…") },
-                    minLines = 3, modifier = Modifier.fillMaxWidth()
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, scrolledContainerColor = MaterialTheme.colorScheme.background)
                 )
             }
-
-            Panel("Mes passages préférés") {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { launchCamera() }) { Icon(Icons.Rounded.AddAPhoto, null); Spacer(Modifier.width(6.dp)); Text("Prendre une page") }
-                    OutlinedButton(onClick = { pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) { Icon(Icons.Rounded.PhotoLibrary, null) }
+        ) { padding ->
+            Column(
+                Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).imePadding().padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Cover(v.coverPath, s.series.title, v.number, s.series.publisher, s.series.colorSeed, Modifier.width(140.dp), corner = 12)
+                    Column(Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.Bottom) {
+                            Text("Tome ", style = MaterialTheme.typography.headlineMedium)
+                            MangaTitle("${v.number}", MaterialTheme.typography.displayMedium, fill = MaterialTheme.colorScheme.primary, outline = MaterialTheme.extra.shadow, stroke = 4.dp)
+                        }
+                        if (v.title.isNotBlank()) Text(v.title, style = MaterialTheme.typography.titleMedium)
+                        val by = listOf(s.series.author, s.series.publisher).filter { it.isNotBlank() }.joinToString(" · ")
+                        if (by.isNotBlank()) Text(by, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(8.dp))
+                        Pill("Dans ma collection", MaterialTheme.extra.ok)
+                        if (v.isbn.isNotBlank()) {
+                            Spacer(Modifier.height(8.dp))
+                            Text("ISBN ${v.isbn}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (v.coverPath == null) {
+                            Spacer(Modifier.height(10.dp))
+                            OutlinedButton(onClick = onTakeCover) { Icon(Icons.Rounded.PhotoCamera, null); Spacer(Modifier.width(6.dp)); Text("Photographier") }
+                        }
+                    }
                 }
-                Spacer(Modifier.height(10.dp))
-                if (moments.isEmpty()) {
-                    Text("Prends en photo une page ou une case que tu as adorée, puis ajoute un petit mot et le numéro de page.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                } else {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        items(moments, key = { it.id }) { m ->
-                            Column(Modifier.width(130.dp)) {
-                                AsyncImage(
-                                    File(m.photoPath), null, contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxWidth().aspectRatio(3f / 4f).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceVariant).clickable { zoom = m }
-                                )
+
+                Panel("Ma lecture") {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ReadStatus.entries.forEach { st ->
+                            val sel = v.status == st
+                            val c = statusColor(st)
+                            Column(
+                                Modifier.weight(1f)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(if (sel) c.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surface)
+                                    .border(if (sel) 2.5.dp else 1.5.dp, if (sel) c else MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
+                                    .clickable { vm.setStatus(v, st) }
+                                    .padding(vertical = 12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                StatusDot(st)
                                 Spacer(Modifier.height(4.dp))
-                                if (m.page != null) Text("Page ${m.page}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                                if (m.caption.isNotBlank()) Text(m.caption, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                Row {
-                                    TextButton(onClick = { momentToEdit = m }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("Modifier", style = MaterialTheme.typography.labelMedium) }
+                                Text(st.label, style = MaterialTheme.typography.labelLarge, fontWeight = if (sel) FontWeight.Bold else FontWeight.Medium)
+                            }
+                        }
+                    }
+                    if (v.status == ReadStatus.LU && v.readAt != null) {
+                        Spacer(Modifier.height(8.dp))
+                        Text("Marqué comme lu le ${DateFormat.getDateInstance().format(Date(v.readAt))}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (v.status == ReadStatus.LU && unreadBefore > 0) {
+                        Spacer(Modifier.height(6.dp))
+                        TextButton(onClick = { vm.markReadUpTo(s.series.id, v.number) }, contentPadding = PaddingValues(horizontal = 0.dp)) {
+                            Icon(Icons.Rounded.DoneAll, null); Spacer(Modifier.width(6.dp))
+                            Text("Marquer aussi les $unreadBefore tome${if (unreadBefore > 1) "s" else ""} d'avant comme lu${if (unreadBefore > 1) "s" else ""}")
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text("Ma note", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row {
+                        (1..5).forEach { i ->
+                            IconButton(onClick = { vm.setRating(v, if (v.rating == i) 0 else i) }, modifier = Modifier.size(42.dp)) {
+                                Icon(
+                                    if (i <= v.rating) Icons.Rounded.Star else Icons.Rounded.StarBorder, "$i étoiles",
+                                    tint = if (i <= v.rating) MaterialTheme.extra.yellow else MaterialTheme.colorScheme.outline, modifier = Modifier.size(32.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Panel("Ma note perso") {
+                    OutlinedTextField(
+                        note, { note = it; vm.setNote(v, it) },
+                        placeholder = { Text("Ce que tu as pensé de ce tome, ton passage préféré…") },
+                        minLines = 3, modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                Panel("Mes passages préférés") {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { launchCamera() }) { Icon(Icons.Rounded.AddAPhoto, null); Spacer(Modifier.width(6.dp)); Text("Prendre une page") }
+                        OutlinedButton(onClick = { pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) { Icon(Icons.Rounded.PhotoLibrary, "Galerie") }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    if (moments.isEmpty()) {
+                        Text("Prends en photo une page ou une case que tu as adorée, puis ajoute un petit mot et le numéro de page.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            items(moments, key = { it.id }) { m ->
+                                Column(Modifier.width(130.dp)) {
+                                    AsyncImage(
+                                        File(m.photoPath), null, contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxWidth().aspectRatio(3f / 4f).clip(RoundedCornerShape(10.dp))
+                                            .border(1.5.dp, MaterialTheme.extra.outline, RoundedCornerShape(10.dp))
+                                            .background(MaterialTheme.colorScheme.surfaceVariant).clickable { zoom = m }
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    if (m.page != null) Text("Page ${m.page}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                                    if (m.caption.isNotBlank()) Text(m.caption, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    TextButton(onClick = { momentToEdit = m }, contentPadding = PaddingValues(0.dp)) { Text("Modifier", style = MaterialTheme.typography.labelMedium) }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            Row(Modifier.fillMaxWidth().padding(bottom = 24.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                OutlinedButton(onClick = { prev?.let { onOpenVolume(it.id) } }, enabled = prev != null) { Text("← Tome ${prev?.number ?: ""}") }
-                Button(onClick = { next?.let { onOpenVolume(it.id) } }, enabled = next != null) { Text("Tome ${next?.number ?: ""} →") }
+                Row(Modifier.fillMaxWidth().padding(bottom = 24.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    OutlinedButton(onClick = { prev?.let { onOpenVolume(it.id) } }, enabled = prev != null) { Text("← Tome ${prev?.number ?: ""}") }
+                    Button(onClick = { next?.let { onOpenVolume(it.id) } }, enabled = next != null) { Text("Tome ${next?.number ?: ""} →") }
+                }
             }
         }
     }
