@@ -80,7 +80,7 @@ fun SettingsScreen(vm: AppViewModel) {
         }
 
         Panel("Sauvegarde") {
-            Text("Tout est stocké sur le téléphone. Exporte régulièrement un fichier .zip (fiches + photos) vers ton Drive, ta carte SD ou ton PC.", style = MaterialTheme.typography.bodyMedium)
+            Text("Un fichier .zip avec fiches et photos.", style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(6.dp))
             Text("Dernière sauvegarde : ${vm.lastExportLabel()}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(10.dp))
@@ -104,8 +104,8 @@ fun SettingsScreen(vm: AppViewModel) {
             Spacer(Modifier.height(8.dp))
             OutlinedTextField(
                 token, { token = it; vm.prefs.githubToken = it },
-                label = { Text("Jeton GitHub (seulement si dépôt privé)") }, placeholder = { Text("github_pat_…") },
-                supportingText = { Text("GitHub → Settings → Developer settings → Personal access tokens. Laisse vide pour un dépôt public.") },
+                label = { Text("Jeton GitHub (dépôt privé)") }, placeholder = { Text("github_pat_…") },
+                supportingText = { Text("Vide si dépôt public") },
                 singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth()
             )
             Spacer(Modifier.height(6.dp))
@@ -130,13 +130,13 @@ fun SettingsScreen(vm: AppViewModel) {
             }
             if (!Updater.canInstallUnknown(context)) {
                 Spacer(Modifier.height(8.dp))
-                Text("Pour installer les mises à jour, autorise « Ma Mangathèque » à installer des applications.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Autorise l'installation des mises à jour.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TextButton(onClick = { Updater.openUnknownSourcesSettings(context) }) { Text("Ouvrir le réglage") }
             }
         }
 
         Panel("À propos") {
-            Text("Ma Mangathèque · données 100 % locales (aucun compte, aucune publicité).\nInfos des livres : Google Books et Open Library.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Données sur le téléphone uniquement.\nSources : BnF, Google Books, Open Library, AniList, ePagine, Place des Libraires.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 
@@ -144,7 +144,7 @@ fun SettingsScreen(vm: AppViewModel) {
         AlertDialog(
             onDismissRequest = { confirmImport = null },
             title = { Text("Restaurer cette sauvegarde ?") },
-            text = { Text("Ta collection actuelle (séries, tomes, photos) sera remplacée par le contenu du fichier.") },
+            text = { Text("Ta collection actuelle sera remplacée.") },
             confirmButton = { TextButton(onClick = { vm.importFrom(uri); confirmImport = null }) { Text("Restaurer", color = MaterialTheme.colorScheme.error) } },
             dismissButton = { TextButton(onClick = { confirmImport = null }) { Text("Annuler") } }
         )
@@ -169,14 +169,14 @@ fun UpdateDialog(vm: AppViewModel) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Version ${info.version} (tu as la ${Updater.currentVersion()}).", style = MaterialTheme.typography.bodyLarge)
                 if (info.notes.isNotBlank()) Text(info.notes.take(600), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("Taille : ${"%.1f".format(info.apkSize / 1_048_576.0)} Mo. Tes données sont conservées.", style = MaterialTheme.typography.bodySmall)
+                Text("${"%.1f".format(info.apkSize / 1_048_576.0)} Mo · données conservées", style = MaterialTheme.typography.bodySmall)
                 when (val u = update) {
                     is UpdateState.Downloading -> { Text("Téléchargement ${(u.progress * 100).toInt()} %"); LinearProgressIndicator(progress = { u.progress }, modifier = Modifier.fillMaxWidth()) }
-                    is UpdateState.Downloaded -> Text("Téléchargée. Si l'installateur ne s'est pas ouvert, touche « Installer ».")
+                    is UpdateState.Downloaded -> Text("Téléchargée.")
                     else -> {}
                 }
                 if (!Updater.canInstallUnknown(context)) {
-                    Text("Android demande d'autoriser l'application à installer des mises à jour (une seule fois).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    Text("Autorisation requise (une seule fois).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 }
             }
         },

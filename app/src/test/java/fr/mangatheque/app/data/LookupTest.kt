@@ -78,6 +78,21 @@ class LookupTest {
         assertNotNull(BookLookup.findCover("9782818940037"))
     }
 
+    @Test fun reseau_resume_et_auteurs() = runBlocking {
+        assumeTrue(System.getenv("NET_TESTS") != null)
+        val resume = BookLookup.frenchSummary("9782818940037")
+        println("Résumé Shield Hero 2 -> $resume")
+        assertTrue(resume!!.contains("Naofumi"))
+        assertFalse(resume.contains("Lire la suite"))
+        assertNull(BookLookup.frenchSummary("9780000000002"))
+        val op = MangaDb.search("One Piece").getOrNull()!!
+        println("One Piece auteurs -> ${op.authorsText} | résumé EN : ${op.synopsisEn?.take(80)}")
+        assertTrue(op.authorsText, op.authorsText.contains("尾田") && op.authorsText.contains("Oda"))
+        assertNotNull(op.synopsisEn)
+        val sh = MangaDb.search("The Rising of the Shield Hero").getOrNull()!!
+        println("Shield Hero auteurs -> ${sh.authorsText}")
+    }
+
     @Test fun reseau_infos_serie_reelles() = runBlocking {
         assumeTrue(System.getenv("NET_TESTS") != null)
         for (title in listOf("One Piece", "Naruto", "Jujutsu Kaisen", "L'Attaque des Titans", "Frieren")) {

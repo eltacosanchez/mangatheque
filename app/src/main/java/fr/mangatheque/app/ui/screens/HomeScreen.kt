@@ -151,8 +151,8 @@ fun HomeScreen(
                     if (backupDue) {
                         Spacer(Modifier.height(14.dp))
                         SpeechBubble(background = MaterialTheme.colorScheme.secondaryContainer) {
-                            Text("Pense à sauvegarder ta collection !", style = MaterialTheme.typography.titleSmall)
-                            Text("Dernière sauvegarde : ${vm.lastExportLabel()}. Un fichier sur ton Drive et tu ne perds jamais rien.", style = MaterialTheme.typography.bodySmall)
+                            Text("Pense à sauvegarder !", style = MaterialTheme.typography.titleSmall)
+                            Text("Dernière : ${vm.lastExportLabel()}", style = MaterialTheme.typography.bodySmall)
                             Row {
                                 TextButton(onClick = onOpenSettings) { Text("Sauvegarder") }
                                 TextButton(onClick = { vm.snoozeBackupReminder(); backupHidden = true }) { Text("Plus tard") }
@@ -220,7 +220,7 @@ fun HomeScreen(
             if (filtered.isEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Text(
-                        if (all.isEmpty()) "Ta collection est vide.\nTouche « Scanner » pour ajouter ton premier manga." else "Aucune série ne correspond à ta recherche.",
+                        if (all.isEmpty()) "Collection vide. Touche « Scanner »." else "Aucun résultat",
                         color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth().padding(vertical = 30.dp)
                     )
@@ -230,7 +230,7 @@ fun HomeScreen(
             if (filtered.isNotEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Text(
-                        "Astuce : appui long sur un manga pour le supprimer.",
+                        "Appui long pour supprimer",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -245,7 +245,7 @@ fun HomeScreen(
             AlertDialog(
                 onDismissRequest = { seriesToDelete = null },
                 title = { Text("Supprimer « ${s.series.title} » ?") },
-                text = { Text("${plural(s.volumes.size, "tome")} ${if (s.volumes.size > 1) "seront supprimés" else "sera supprimé"} de ta collection, avec les notes et les photos. C'est définitif.") },
+                text = { Text("Tomes, notes et photos seront supprimés.") },
                 confirmButton = { TextButton(onClick = { vm.deleteSeries(s) {}; seriesToDelete = null }) { Text("Supprimer", color = MaterialTheme.colorScheme.error) } },
                 dismissButton = { TextButton(onClick = { seriesToDelete = null }) { Text("Annuler") } }
             )

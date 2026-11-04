@@ -71,18 +71,18 @@ fun StoreScreen(vm: AppViewModel, onOpenSeries: (Long) -> Unit, onScan: () -> Un
                     Brand("En ", "magasin", Modifier.padding(top = 12.dp))
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "Tape le nom du manga que tu as devant toi, ou scanne son code-barres : tu vois tout de suite ce que tu as et ce qui te manque. L'écran reste allumé.",
+                        "Tape un titre ou scanne.",
                         style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(Modifier.height(12.dp))
-                    SearchField(vm.storeQuery, { vm.storeQuery = it }, "Quel manga as-tu en main ?")
+                    SearchField(vm.storeQuery, { vm.storeQuery = it }, "Titre du manga")
                     Spacer(Modifier.height(6.dp))
                 }
             }
             if (list.isEmpty()) {
                 item {
                     Text(
-                        if (all.isEmpty()) "Ta collection est vide pour l'instant." else "Tu n'as pas encore cette série : tu peux l'acheter sans risque de doublon.",
+                        if (all.isEmpty()) "Collection vide." else "Pas dans ta collection.",
                         textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.fillMaxWidth().padding(vertical = 30.dp)
                     )
@@ -104,9 +104,9 @@ fun StoreScreen(vm: AppViewModel, onOpenSeries: (Long) -> Unit, onScan: () -> Un
                         }
                         Row(verticalAlignment = Alignment.Top) {
                             if (missing.isEmpty()) {
-                                Text(if (s.series.ongoing) "À jour, rien ne manque" else "Série complète", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.extra.ok)
+                                Text(if (s.series.ongoing) "À jour" else "Série complète", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.extra.ok)
                             } else {
-                                Text("Il me manque : ", style = MaterialTheme.typography.bodyLarge)
+                                Text("Manque : ", style = MaterialTheme.typography.bodyLarge)
                                 Text("${ranges(missing)} (${missing.size})", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                             }
                         }
@@ -118,8 +118,8 @@ fun StoreScreen(vm: AppViewModel, onOpenSeries: (Long) -> Unit, onScan: () -> Un
                         ) {
                             Text(
                                 when {
-                                    next != null -> "👉 Prochain à acheter : tome $next"
-                                    s.series.ongoing -> "Prochain tome à surveiller : T${s.published + 1}"
+                                    next != null -> "👉 Prochain : T$next"
+                                    s.series.ongoing -> "Prochain : T${s.published + 1}"
                                     else -> "Série terminée"
                                 },
                                 style = MaterialTheme.typography.labelLarge

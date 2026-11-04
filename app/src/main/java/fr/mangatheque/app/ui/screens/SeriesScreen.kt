@@ -109,8 +109,8 @@ fun SeriesScreen(
 
     // Première ouverture : on cherche l'image de l'œuvre pour le fond.
     // (et pour retrouver de vrais genres si la série n'en a pas).
-    LaunchedEffect(data.series.id, data.series.bannerPath == null, data.series.genreList.isEmpty()) {
-        if (data.series.bannerPath == null || data.series.genreList.isEmpty()) vm.fetchBanner(data.series.id)
+    LaunchedEffect(data.series.id) {
+        vm.fetchBanner(data.series.id) // ne fait rien si tout est déjà complet
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -128,15 +128,15 @@ fun SeriesScreen(
                             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                                 DropdownMenuItem(text = { Text("Scanner un tome") }, leadingIcon = { Icon(Icons.Rounded.QrCodeScanner, null) }, onClick = { menu = false; onScan() })
                                 DropdownMenuItem(text = { Text("Ajouter un tome à la main") }, leadingIcon = { Icon(Icons.Rounded.Add, null) }, onClick = { menu = false; onAddVolume() })
-                                DropdownMenuItem(text = { Text("Ajouter plusieurs tomes d'un coup") }, leadingIcon = { Icon(Icons.Rounded.LibraryAdd, null) }, onClick = { menu = false; rangeDialog = true })
+                                DropdownMenuItem(text = { Text("Ajouter plusieurs tomes") }, leadingIcon = { Icon(Icons.Rounded.LibraryAdd, null) }, onClick = { menu = false; rangeDialog = true })
                                 DropdownMenuItem(text = { Text("Tout marquer comme lu") }, leadingIcon = { Icon(Icons.Rounded.DoneAll, null) }, onClick = { menu = false; confirmAllRead = true })
                                 HorizontalDivider()
-                                DropdownMenuItem(text = { Text("Image de fond : choisir dans la galerie") }, leadingIcon = { Icon(Icons.Rounded.Wallpaper, null) }, onClick = {
+                                DropdownMenuItem(text = { Text("Fond : depuis la galerie") }, leadingIcon = { Icon(Icons.Rounded.Wallpaper, null) }, onClick = {
                                     menu = false; pickBanner.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                                 })
-                                DropdownMenuItem(text = { Text("Image de fond : chercher automatiquement") }, leadingIcon = { Icon(Icons.Rounded.AutoAwesome, null) }, onClick = { menu = false; vm.fetchBanner(id, manual = true) })
-                                if (data.backdrop != null) DropdownMenuItem(text = { Text("Retirer l'image de fond") }, leadingIcon = { Icon(Icons.Rounded.HideImage, null) }, onClick = { menu = false; vm.removeBanner(id) })
-                                DropdownMenuItem(text = { Text("Photographier la couverture de la série") }, leadingIcon = { Icon(Icons.Rounded.PhotoCamera, null) }, onClick = { menu = false; onTakeCover() })
+                                DropdownMenuItem(text = { Text("Fond : automatique") }, leadingIcon = { Icon(Icons.Rounded.AutoAwesome, null) }, onClick = { menu = false; vm.fetchBanner(id, manual = true) })
+                                if (data.backdrop != null) DropdownMenuItem(text = { Text("Retirer le fond") }, leadingIcon = { Icon(Icons.Rounded.HideImage, null) }, onClick = { menu = false; vm.removeBanner(id) })
+                                DropdownMenuItem(text = { Text("Photo de la couverture") }, leadingIcon = { Icon(Icons.Rounded.PhotoCamera, null) }, onClick = { menu = false; onTakeCover() })
                                 HorizontalDivider()
                                 DropdownMenuItem(text = { Text("Supprimer la série", color = MaterialTheme.colorScheme.error) }, leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) }, onClick = { menu = false; confirmDelete = true })
                             }
@@ -166,8 +166,8 @@ fun SeriesScreen(
                                 val by = listOf(data.series.author, data.series.publisher).filter { it.isNotBlank() }.joinToString(" · ")
                                 if (by.isNotBlank()) Text(by, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Spacer(Modifier.height(8.dp))
-                                if (data.series.ongoing) Pill("Série en cours · une suite arrive", MaterialTheme.colorScheme.primary)
-                                else Pill("Série terminée", MaterialTheme.extra.ok)
+                                if (data.series.ongoing) Pill("En cours", MaterialTheme.colorScheme.primary)
+                                else Pill("Terminée", MaterialTheme.extra.ok)
                                 if (data.series.genreList.isNotEmpty()) {
                                     Spacer(Modifier.height(8.dp))
                                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -195,7 +195,7 @@ fun SeriesScreen(
                         Spacer(Modifier.height(20.dp))
                         SectionHeader("Les tomes")
                         Text(
-                            "Touche un tome pour ouvrir sa fiche · appui long pour le supprimer",
+                            "Appui long pour supprimer",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(bottom = 4.dp)
                         )
@@ -237,10 +237,10 @@ fun SeriesScreen(
                 }
 
                 item(span = { GridItemSpan(maxLineSpan) }) {
-                    TextButton(onClick = { confirmDelete = true }, modifier = Modifier.padding(top = 16.dp)) {
-                        Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error); Spacer(Modifier.width(6.dp))
-                        Text("Supprimer cette série de ma collection", color = MaterialTheme.colorScheme.error)
-                    }
+                    Text(
+                        "Supprimer la série", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 20.dp).clickable { confirmDelete = true }.padding(vertical = 6.dp)
+                    )
                 }
             }
         }
@@ -250,7 +250,7 @@ fun SeriesScreen(
         AlertDialog(
             onDismissRequest = { volumeToDelete = null },
             title = { Text("Supprimer le tome ${v.number} ?") },
-            text = { Text("Il sera retiré de « ${data.series.title} », avec sa note et ses photos de passages.") },
+            text = { Text("Sa note et ses photos seront supprimées.") },
             confirmButton = { TextButton(onClick = { vm.deleteVolume(v) {}; volumeToDelete = null }) { Text("Supprimer", color = MaterialTheme.colorScheme.error) } },
             dismissButton = { TextButton(onClick = { volumeToDelete = null }) { Text("Annuler") } }
         )
@@ -260,7 +260,7 @@ fun SeriesScreen(
         AlertDialog(
             onDismissRequest = { addMissing = null },
             title = { Text("Tome $n") },
-            text = { Text("Tu viens de l'acheter ? Ajoute-le à ta collection (tu pourras scanner son code-barres plus tard pour récupérer la couverture).") },
+            text = { Text("L'ajouter à ta collection ?") },
             confirmButton = { TextButton(onClick = { vm.addMissingVolume(id, n); addMissing = null }) { Text("Je l'ai !") } },
             dismissButton = { TextButton(onClick = { addMissing = null }) { Text("Annuler") } }
         )
@@ -276,7 +276,7 @@ fun SeriesScreen(
             title = { Text("Ajouter plusieurs tomes") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Pratique pour enregistrer d'un coup les tomes que tu as déjà. Ceux déjà présents sont ignorés.", style = MaterialTheme.typography.bodyMedium)
+                    Text("Les tomes déjà présents sont ignorés.", style = MaterialTheme.typography.bodyMedium)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(from, { from = it.filter { c -> c.isDigit() }.take(3) }, label = { Text("Du tome") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
                         OutlinedTextField(to, { to = it.filter { c -> c.isDigit() }.take(3) }, label = { Text("au tome") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
@@ -291,7 +291,7 @@ fun SeriesScreen(
         AlertDialog(
             onDismissRequest = { confirmAllRead = false },
             title = { Text("Tout marquer comme lu ?") },
-            text = { Text("Les ${data.volumes.size} tomes de « ${data.series.title} » passeront en « Lu ».") },
+            text = { Text("Tous les tomes passeront en « Lu ».") },
             confirmButton = { TextButton(onClick = { confirmAllRead = false; vm.markReadUpTo(id, Int.MAX_VALUE) }) { Text("Oui, tout est lu") } },
             dismissButton = { TextButton(onClick = { confirmAllRead = false }) { Text("Annuler") } }
         )
@@ -300,7 +300,7 @@ fun SeriesScreen(
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text("Supprimer « ${data.series.title} » ?") },
-            text = { Text("Les ${data.volumes.size} tomes, leurs notes et leurs photos seront supprimés. Cette action est définitive.") },
+            text = { Text("Tomes, notes et photos seront supprimés.") },
             confirmButton = { TextButton(onClick = { confirmDelete = false; vm.deleteSeries(data, onBack) }) { Text("Supprimer", color = MaterialTheme.colorScheme.error) } },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Annuler") } }
         )

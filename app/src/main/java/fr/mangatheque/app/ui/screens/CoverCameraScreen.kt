@@ -93,7 +93,7 @@ fun CoverCameraScreen(onBack: () -> Unit, onCaptured: (File) -> Unit) {
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding(), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) { Icon(Icons.Rounded.Close, "Fermer", tint = Color.White) }
-                Text("Place la couverture dans le cadre", color = Color.White, style = MaterialTheme.typography.titleMedium)
+                Text("Couverture dans le cadre", color = Color.White, style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.size(48.dp))
             }
             Box(Modifier.fillMaxWidth().aspectRatio(3f / 4f)) {
@@ -131,7 +131,7 @@ fun CoverCameraScreen(onBack: () -> Unit, onCaptured: (File) -> Unit) {
             }
             Spacer(Modifier.height(12.dp))
             Text(
-                "Pose le manga à plat, remplis bien le cadre. Le recadrage est automatique.",
+                "Remplis bien le cadre",
                 color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center,
                 modifier = Modifier.padding(horizontal = 32.dp)
             )
@@ -150,7 +150,7 @@ fun CoverCameraScreen(onBack: () -> Unit, onCaptured: (File) -> Unit) {
                                 val t = (1f - FRAME_H) / 2f
                                 val f = Images.cropToFrame(context, tmp, RectF(l, t, l + FRAME_W, t + FRAME_H))
                                 busy = false
-                                if (f == null) error = "Impossible de traiter la photo, réessaie." else onCaptured(f)
+                                if (f == null) error = "Photo illisible, réessaie" else onCaptured(f)
                             }
                         }
                         override fun onError(exception: ImageCaptureException) { busy = false; error = "Échec de la photo : ${exception.message}" }

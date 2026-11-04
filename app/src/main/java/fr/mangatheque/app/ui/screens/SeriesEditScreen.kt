@@ -85,7 +85,7 @@ fun SeriesEditScreen(vm: AppViewModel, id: Long, onBack: () -> Unit, onSaved: (L
             OutlinedTextField(
                 total, { total = it.filter { c -> c.isDigit() } },
                 label = { Text(if (ongoing) "Tomes parus à ce jour" else "Nombre total de tomes") },
-                supportingText = { Text("Sert à calculer les tomes qui te manquent.") },
+                supportingText = { Text("Pour calculer les manquants") },
                 singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth()
             )
             OutlinedTextField(synopsis, { synopsis = it }, label = { Text("Résumé") }, minLines = 3, modifier = Modifier.fillMaxWidth())

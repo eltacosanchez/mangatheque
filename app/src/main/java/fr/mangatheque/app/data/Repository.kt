@@ -144,8 +144,8 @@ class Repository(private val context: Context, private val db: AppDatabase) {
 
     companion object {
         fun normalize(s: String): String = s.lowercase()
-            .replace(Regex("[àáâä]"), "a").replace(Regex("[éèêë]"), "e").replace(Regex("[îï]"), "i")
-            .replace(Regex("[ôö]"), "o").replace(Regex("[ùûü]"), "u").replace("ç", "c")
+            .replace(Regex("[àáâäā]"), "a").replace(Regex("[éèêëē]"), "e").replace(Regex("[îïī]"), "i")
+            .replace(Regex("[ôöō]"), "o").replace(Regex("[ùûüū]"), "u").replace("ç", "c")
             .replace(Regex("[^a-z0-9]+"), " ").trim()
     }
 }

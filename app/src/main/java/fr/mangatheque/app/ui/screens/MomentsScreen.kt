@@ -57,7 +57,7 @@ fun MomentsScreen(vm: AppViewModel, onOpenVolume: (Long) -> Unit) {
                 Brand("Mes ", "passages", Modifier.padding(top = 12.dp))
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "Les pages et les cases que tu as préférées. Touche une photo pour l'agrandir.",
+                    "Touche une photo pour l'agrandir",
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.height(6.dp))
@@ -67,7 +67,7 @@ fun MomentsScreen(vm: AppViewModel, onOpenVolume: (Long) -> Unit) {
         if (all.isEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Text(
-                    "📖 Ouvre la fiche d'un tome et prends en photo une page que tu as adorée : elle apparaîtra ici.",
+                    "Aucun passage. Ajoute-en depuis la fiche d'un tome.",
                     textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp)
                 )

@@ -52,6 +52,8 @@ object BookLookup {
         val isbn10 = toIsbn10(clean)
         // Couverture de l'édition française en haute qualité (librairies ePagine), cherchée en parallèle.
         val frenchCover = async { runCatching { epagineCover(clean, quick) }.getOrNull() }
+        // Résumé du dos du livre en français (Place des Libraires), lui aussi en parallèle.
+        val summary = async { frenchSummary(clean, quick) }
         onStage(1)
         val first = coroutineScope {
             listOf(
@@ -60,7 +62,7 @@ object BookLookup {
                 async { attempt { bnf(clean, quick) } }
             ).awaitAll()
         }
-        merge(first)?.let { return@withContext it.withCover(frenchCover.await()) }
+        merge(first)?.let { return@withContext it.withCover(frenchCover.await()).withSummary(summary.await()) }
 
         onStage(2)
         val second = coroutineScope {
@@ -73,13 +75,16 @@ object BookLookup {
                 async { attempt { bnf(clean, patient) } }
             ).awaitAll()
         }
-        merge(second)?.let { return@withContext it.withCover(frenchCover.await() ?: runCatching { epagineCover(clean, patient) }.getOrNull()) }
+        merge(second)?.let { return@withContext it.withCover(frenchCover.await() ?: runCatching { epagineCover(clean, patient) }.getOrNull()).withSummary(summary.await()) }
         if ((first + second).all { it.isFailure }) throw IOException("Aucune source n'a répondu (pas de réseau ?)")
         null
     }
 
     /** La couverture ePagine (édition française, grande taille) passe avant celles de Google / Open Library. */
     private fun BookInfo.withCover(french: String?): BookInfo = if (french != null) copy(coverUrl = french) else this
+
+    /** Le résumé français du libraire passe avant la description Google (parfois en anglais). */
+    private fun BookInfo.withSummary(french: String?): BookInfo = if (french != null) copy(description = french) else this
 
     /**
      * Cherche seulement une couverture pour un ISBN (tome ajouté sans image, ou livre introuvable ailleurs).
@@ -90,6 +95,36 @@ object BookLookup {
         if (!isValidIsbn(clean)) return@withContext null
         runCatching { epagineCover(clean, patient) }.getOrNull()
             ?: "https://covers.openlibrary.org/b/isbn/$clean-L.jpg?default=false".takeIf { coverExists(patient, it) }
+    }
+
+    /**
+     * Résumé du dos du livre, en français, depuis Place des Libraires (librairies indépendantes).
+     * Retourne null si le livre n'y est pas.
+     */
+    suspend fun frenchSummary(isbn: String, client: OkHttpClient = patient): String? = withContext(Dispatchers.IO) {
+        val clean = normalizeIsbn(isbn)
+        if (clean.length != 13) return@withContext null
+        runCatching {
+            val req = Request.Builder().url("https://www.placedeslibraires.fr/livre/$clean")
+                .header("User-Agent", "Mozilla/5.0 (Android) Mangatheque/1.2").build()
+            client.newCall(req).execute().use { r ->
+                if (!r.isSuccessful) return@runCatching null
+                parseSummary(r.body?.string().orEmpty())
+            }
+        }.getOrNull()
+    }
+
+    internal fun parseSummary(html: String): String? {
+        val raw = Regex("""<p class="description">(.*?)</p>""", RegexOption.DOT_MATCHES_ALL).find(html)?.groupValues?.get(1) ?: return null
+        val text = decode(
+            raw.replace(Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE), "\n")
+                .replace(Regex("""<[^>]+>"""), " ")
+        )
+            .replace("Lire la suite", "").replace("Fermer", "")
+            .replace(Regex("""[ \t]+"""), " ")
+            .replace(Regex("""\s*\n\s*"""), "\n")
+            .trim()
+        return text.takeIf { it.length >= 30 }
     }
 
     /** Taille exacte de l'image « pas de couverture » renvoyée par ePagine quand il n'a pas le livre. */

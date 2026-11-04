@@ -216,13 +216,13 @@ fun VolumeScreen(
                     }
                     if (v.status == ReadStatus.LU && v.readAt != null) {
                         Spacer(Modifier.height(8.dp))
-                        Text("Marqué comme lu le ${DateFormat.getDateInstance().format(Date(v.readAt))}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Lu le ${DateFormat.getDateInstance().format(Date(v.readAt))}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     if (v.status == ReadStatus.LU && unreadBefore > 0) {
                         Spacer(Modifier.height(6.dp))
                         TextButton(onClick = { vm.markReadUpTo(s.series.id, v.number) }, contentPadding = PaddingValues(horizontal = 0.dp)) {
                             Icon(Icons.Rounded.DoneAll, null); Spacer(Modifier.width(6.dp))
-                            Text("Marquer aussi les $unreadBefore tome${if (unreadBefore > 1) "s" else ""} d'avant comme lu${if (unreadBefore > 1) "s" else ""}")
+                            Text("Marquer les précédents comme lus")
                         }
                     }
                     Spacer(Modifier.height(12.dp))
@@ -242,7 +242,7 @@ fun VolumeScreen(
                 Panel("Ma note perso") {
                     OutlinedTextField(
                         note, { note = it; vm.setNote(v, it) },
-                        placeholder = { Text("Ce que tu as pensé de ce tome, ton passage préféré…") },
+                        placeholder = { Text("Ton avis…") },
                         minLines = 3, modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -254,7 +254,7 @@ fun VolumeScreen(
                     }
                     Spacer(Modifier.height(10.dp))
                     if (moments.isEmpty()) {
-                        Text("Prends en photo une page ou une case que tu as adorée, puis ajoute un petit mot et le numéro de page.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Photographie une page que tu as aimée.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             items(moments, key = { it.id }) { m ->
@@ -279,10 +279,10 @@ fun VolumeScreen(
                     OutlinedButton(onClick = { prev?.let { onOpenVolume(it.id) } }, enabled = prev != null) { Text("← Tome ${prev?.number ?: ""}") }
                     Button(onClick = { next?.let { onOpenVolume(it.id) } }, enabled = next != null) { Text("Tome ${next?.number ?: ""} →") }
                 }
-                TextButton(onClick = { confirmDelete = true }, modifier = Modifier.padding(bottom = 24.dp)) {
-                    Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error); Spacer(Modifier.width(6.dp))
-                    Text("Supprimer ce tome de ma collection", color = MaterialTheme.colorScheme.error)
-                }
+                Text(
+                    "Supprimer le tome", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 24.dp).clickable { confirmDelete = true }.padding(vertical = 6.dp)
+                )
             }
         }
     }
@@ -333,7 +333,7 @@ fun VolumeScreen(
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text("Supprimer le tome ${v.number} ?") },
-            text = { Text("Sa note et ses photos de passages seront supprimées.") },
+            text = { Text("Sa note et ses photos seront supprimées.") },
             confirmButton = { TextButton(onClick = { confirmDelete = false; vm.deleteVolume(v, onBack) }) { Text("Supprimer", color = MaterialTheme.colorScheme.error) } },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Annuler") } }
         )

@@ -21,8 +21,26 @@ data class MangaInfo(
     val finished: Boolean?,
     /** Nombre de tomes au Japon (connu surtout pour les séries terminées). */
     val volumes: Int?,
-    val genres: List<String>
-)
+    val genres: List<String>,
+    /** Résumé de la série, en anglais (à traduire). */
+    val synopsisEn: String? = null,
+    /** Auteurs (scénario / dessin), avec leur nom dans l'écriture d'origine. */
+    val authors: List<Person> = emptyList()
+) {
+    /** « 尾田栄一郎 (Eiichiro Oda) » pour un auteur japonais, sinon juste le nom. */
+    val authorsText: String get() = authors.joinToString(", ") { it.display }
+}
+
+data class Person(val native: String?, val latin: String) {
+    val display: String
+        get() = if (!native.isNullOrBlank() && native.any { isAsian(it) } && latin.isNotBlank()) "$native ($latin)" else latin.ifBlank { native.orEmpty() }
+
+    private fun isAsian(c: Char): Boolean {
+        val b = Character.UnicodeBlock.of(c)
+        return b == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS || b == Character.UnicodeBlock.HIRAGANA ||
+            b == Character.UnicodeBlock.KATAKANA || b == Character.UnicodeBlock.HANGUL_SYLLABLES
+    }
+}
 
 /**
  * Base de données de mangas : AniList d'abord (rapide, fiable, images larges),
@@ -81,6 +99,8 @@ object MangaDb {
               tags { name rank isMediaSpoiler }
               coverImage { extraLarge large }
               bannerImage
+              description(asHtml: false)
+              staff(perPage: 6, sort: [RELEVANCE]) { edges { role node { name { full native } } } }
             }
           }
         }"""
@@ -129,7 +149,33 @@ object MangaDb {
         val genres = (tags.filter { it in demographics } + strings(o.optJSONArray("genres")) + tags.filter { it !in demographics })
             .mapNotNull { genreFr[it] }.distinct().take(7)
         val t = o.optJSONObject("title")
-        return MangaInfo(t?.optString("english")?.takeIf { it.isNotBlank() && it != "null" } ?: t?.optString("romaji").orEmpty(), image, finished, volumes, genres)
+        // Auteurs : scénario et dessin seulement (pas les assistants, traducteurs…).
+        val authors = o.optJSONObject("staff")?.optJSONArray("edges")?.let { e ->
+            (0 until e.length()).map { e.getJSONObject(it) }
+                .filter { val r = it.optString("role"); r.contains("Story") || r.contains("Art") && !r.contains("Design") }
+                .mapNotNull { it.optJSONObject("node")?.optJSONObject("name") }
+                .map { n -> Person(n.optString("native").takeIf { it.isNotBlank() && it != "null" }, n.optString("full").takeIf { it != "null" }.orEmpty()) }
+                .distinctBy { it.latin }.take(3)
+        } ?: emptyList()
+        return MangaInfo(
+            t?.optString("english")?.takeIf { it.isNotBlank() && it != "null" } ?: t?.optString("romaji").orEmpty(),
+            image, finished, volumes, genres,
+            synopsisEn = cleanSynopsis(o.optString("description")), authors = authors
+        )
+    }
+
+    /** Retire les balises, les mentions « (Source: …) » et les notes d'un résumé AniList / MyAnimeList. */
+    internal fun cleanSynopsis(raw: String?): String? {
+        if (raw.isNullOrBlank() || raw == "null") return null
+        return raw.replace(Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE), "\n")
+            .replace(Regex("""<[^>]+>"""), "")
+            .replace(Regex("""\(Source:[^)]*\)""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""\[Written by[^\]]*\]""", RegexOption.IGNORE_CASE), "")
+            .substringBefore("Notes:").substringBefore("Note:")
+            .replace("&quot;", "\"").replace("&amp;", "&").replace("&#039;", "'")
+            .replace(Regex("""\n{3,}"""), "\n\n")
+            .trim()
+            .takeIf { it.length >= 20 }
     }
 
     // ------------------------------------------------------------------ Jikan (MyAnimeList)
@@ -169,7 +215,12 @@ object MangaDb {
         fun names(a: JSONArray?) = if (a == null) emptyList() else (0 until a.length()).map { a.getJSONObject(it).optString("name") }
         val genres = (names(o.optJSONArray("demographics")) + names(o.optJSONArray("genres")) + names(o.optJSONArray("themes")))
             .mapNotNull { genreFr[it] }.distinct().take(7)
-        return MangaInfo(o.optString("title"), image, finished, volumes, genres)
+        // Jikan écrit « Oda, Eiichiro » : on remet dans l'ordre « Eiichiro Oda ».
+        val authors = names(o.optJSONArray("authors")).map { n ->
+            val p = n.split(",").map { it.trim() }
+            Person(null, if (p.size >= 2) "${p[1]} ${p[0]}" else n)
+        }.take(3)
+        return MangaInfo(o.optString("title"), image, finished, volumes, genres, synopsisEn = cleanSynopsis(o.optString("synopsis")), authors = authors)
     }
 
     // ------------------------------------------------------------------ Outils

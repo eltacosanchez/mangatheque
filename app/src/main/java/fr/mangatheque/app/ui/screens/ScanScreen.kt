@@ -88,7 +88,24 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
+import fr.mangatheque.app.data.BookInfo
 import fr.mangatheque.app.data.BookLookup
+import fr.mangatheque.app.data.FrenchTranslator
+import fr.mangatheque.app.data.MangaDb
+import fr.mangatheque.app.data.MangaInfo
+import fr.mangatheque.app.ui.components.Pill
+import coil.compose.AsyncImage
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
 import fr.mangatheque.app.data.Series
 import fr.mangatheque.app.data.Volume
 import fr.mangatheque.app.ui.AppViewModel
@@ -171,9 +188,9 @@ fun ScanScreen(vm: AppViewModel, mode: String, onBack: () -> Unit, onIsbn: (Stri
             delay(1000)
             val idle = SystemClock.elapsedRealtime() - lastSeen
             tip = when {
-                idle > 12_000 -> "Code abîmé ? Touche ⌨ en haut pour taper l'ISBN."
-                idle > 8_000 -> "Touche l'écran sur le code-barres pour faire la mise au point."
-                idle > 4_500 -> if (zoom2x) "Tiens le livre à environ 20 cm, bien à plat et éclairé." else "Rapproche un peu le livre."
+                idle > 12_000 -> "Code abîmé ? Tape l'ISBN (⌨)"
+                idle > 8_000 -> "Touche l'écran pour la mise au point"
+                idle > 4_500 -> if (zoom2x) "Livre à 20 cm, à plat, éclairé" else "Rapproche le livre"
                 else -> null
             }
         }
@@ -195,15 +212,25 @@ fun ScanScreen(vm: AppViewModel, mode: String, onBack: () -> Unit, onIsbn: (Stri
         val info = if (owned == null) runCatching { BookLookup.lookup(code) }.getOrNull() else null
         val series = owned?.second ?: vm.repo.guessSeries(code, info?.seriesTitle)
         val full = series?.let { vm.repo.seriesDao.getOne(it.id) }
-        checkResult = CheckResult(
+        var r = CheckResult(
             isbn = code,
             ownedVolume = owned?.first,
             series = series,
             missing = full?.missingNumbers ?: emptyList(),
             ownedNumbers = full?.ownedNumbers?.sorted() ?: emptyList(),
-            title = info?.rawTitle ?: owned?.let { "${it.second.title} · tome ${it.first.number}" },
-            number = info?.volumeNumber ?: owned?.first?.number
+            title = info?.seriesTitle ?: owned?.second?.title,
+            number = info?.volumeNumber ?: owned?.first?.number,
+            book = info,
+            summary = info?.description?.takeIf { it.isNotBlank() }
         )
+        checkResult = r
+        // Fiche complète (genres, statut, auteurs, résumé traduit si besoin) pour un tome que je n'ai pas.
+        if (owned != null) return@LaunchedEffect
+        val title = info?.seriesTitle?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        val manga = MangaDb.search(title).getOrNull() ?: return@LaunchedEffect
+        r = r.copy(manga = manga, translating = r.summary == null && manga.synopsisEn != null)
+        checkResult = r
+        if (r.translating) checkResult = r.copy(summary = FrenchTranslator.toFrench(manga.synopsisEn!!), translating = false)
     }
 
     val progress by animateFloatAsState(
@@ -285,7 +312,7 @@ fun ScanScreen(vm: AppViewModel, mode: String, onBack: () -> Unit, onIsbn: (Stri
             )
         } else {
             Column(Modifier.align(Alignment.Center).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("L'appareil photo est nécessaire pour scanner le code-barres.", color = Color.White, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
+                Text("Autorise l'appareil photo", color = Color.White, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(12.dp))
                 Button(onClick = { askPermission.launch(Manifest.permission.CAMERA) }) { Text("Autoriser l'appareil photo") }
             }
@@ -329,9 +356,9 @@ fun ScanScreen(vm: AppViewModel, mode: String, onBack: () -> Unit, onIsbn: (Stri
             Text(
                 when {
                     accepted != null -> "✓ Code lu !"
-                    hits > 0 -> "Ne bouge plus… lecture en cours"
-                    mode == "check" -> "Scanne le code-barres au dos : je te dis si tu l'as déjà"
-                    else -> "Place le code-barres ISBN dans le cadre"
+                    hits > 0 -> "Ne bouge plus…"
+                    mode == "check" -> "Scanne le code-barres"
+                    else -> "Code-barres dans le cadre"
                 },
                 color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center
             )
@@ -353,41 +380,22 @@ fun ScanScreen(vm: AppViewModel, mode: String, onBack: () -> Unit, onIsbn: (Stri
             }
         }
 
-        // Panneau du bas : chargement, puis résultat (mode magasin)
+        // Panneau du bas : chargement, puis fiche du manga (mode magasin)
         val code = accepted
         if (code != null) {
             Column(
-                Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp).fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surface).padding(16.dp)
+                Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(12.dp).fillMaxWidth()
+                    .heightIn(max = maxHeight * 0.75f)
+                    .clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surface)
+                    .verticalScroll(rememberScrollState()).padding(16.dp)
             ) {
                 val r = checkResult
                 if (mode != "check" || r == null) {
-                    Text("✓ Code détecté : $code", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.extra.ok)
-                    Spacer(Modifier.height(6.dp))
-                    Text(if (mode == "check") "Je regarde dans ta collection…" else "Recherche des infos du manga…", style = MaterialTheme.typography.bodyMedium)
+                    Text("✓ Code lu", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.extra.ok)
                     Spacer(Modifier.height(10.dp))
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                 } else {
-                    Text(r.title ?: "ISBN ${r.isbn}", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(6.dp))
-                    when {
-                        r.ownedVolume != null -> Text("✅ Tu l'as déjà : tome ${r.ownedVolume.number}", color = MaterialTheme.extra.ok, style = MaterialTheme.typography.titleLarge)
-                        r.series != null -> {
-                            val n = r.number
-                            if (n != null && n in r.ownedNumbers) Text("✅ Tu as déjà le tome $n de « ${r.series.title} »", color = MaterialTheme.extra.ok, style = MaterialTheme.typography.titleLarge)
-                            else Text("🛒 Pas encore dans ta collection" + (n?.let { " (tome $it)" } ?: ""), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleLarge)
-                            Spacer(Modifier.height(4.dp))
-                            Text("J'ai : ${ranges(r.ownedNumbers)}", style = MaterialTheme.typography.bodyMedium)
-                            if (r.missing.isNotEmpty()) Text("Il me manque : ${ranges(r.missing)}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
-                        }
-                        else -> Text("🛒 Tu n'as aucun tome de cette série : achat sans risque de doublon.", style = MaterialTheme.typography.bodyLarge)
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (r.series != null) TextButton(onClick = { onOpenSeries(r.series.id) }) { Text("Voir la série") }
-                        if (r.ownedVolume == null) Button(onClick = { onIsbnLatest(r.isbn) }) { Text("J'achète : ajouter") }
-                        TextButton(onClick = { restart() }) { Text("Scanner un autre") }
-                    }
+                    StoreSheet(r, onAdd = { onIsbnLatest(r.isbn) }, onSeries = { r.series?.let { onOpenSeries(it.id) } }, onAgain = { restart() })
                 }
             }
         }
@@ -428,5 +436,85 @@ data class CheckResult(
     val missing: List<Int>,
     val ownedNumbers: List<Int>,
     val title: String?,
-    val number: Int?
+    val number: Int?,
+    val book: BookInfo? = null,
+    val manga: MangaInfo? = null,
+    val summary: String? = null,
+    val translating: Boolean = false
 )
+
+/** Fiche du manga scanné en magasin : est-ce que je l'ai, et sinon de quoi ça parle. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun StoreSheet(r: CheckResult, onAdd: () -> Unit, onSeries: () -> Unit, onAgain: () -> Unit) {
+    val n = r.number
+    val have = r.ownedVolume != null || (n != null && n in r.ownedNumbers)
+    // Verdict en tête, en gros
+    Text(
+        if (have) "✅ Déjà à toi" else "🛒 Tu ne l'as pas",
+        style = MaterialTheme.typography.headlineSmall,
+        color = if (have) MaterialTheme.extra.ok else MaterialTheme.colorScheme.primary
+    )
+    if (r.series != null) {
+        Text(
+            "J'ai : ${ranges(r.ownedNumbers)}" + if (r.missing.isNotEmpty()) " · Manque : ${ranges(r.missing)}" else "",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+    Spacer(Modifier.height(12.dp))
+
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        val cover = r.book?.coverUrl ?: r.ownedVolume?.coverPath
+        if (cover != null) {
+            AsyncImage(
+                model = if (cover.startsWith("http")) cover else java.io.File(cover), contentDescription = null, contentScale = ContentScale.Crop,
+                modifier = Modifier.width(96.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(8.dp))
+                    .border(1.5.dp, MaterialTheme.extra.outline, RoundedCornerShape(8.dp))
+            )
+        }
+        Column(Modifier.weight(1f)) {
+            Text(r.title ?: "ISBN ${r.isbn}", style = MaterialTheme.typography.titleLarge)
+            if (n != null) Text("Tome $n", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            val author = r.manga?.authorsText?.takeIf { it.isNotBlank() } ?: r.book?.authors
+            if (!author.isNullOrBlank()) Text(author, style = MaterialTheme.typography.bodyMedium)
+            r.book?.publisher?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            r.manga?.finished?.let { done ->
+                Spacer(Modifier.height(6.dp))
+                Pill(
+                    if (done) "Terminée" + (r.manga.volumes?.let { " · $it tomes" } ?: "") else "En cours",
+                    if (done) MaterialTheme.extra.ok else MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+
+    val genres = r.manga?.genres.orEmpty()
+    if (genres.isNotEmpty()) {
+        Spacer(Modifier.height(10.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { genres.forEach { Pill(it) } }
+    }
+
+    Spacer(Modifier.height(12.dp))
+    when {
+        r.summary != null -> {
+            var open by remember { mutableStateOf(false) }
+            Text("Résumé", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                r.summary, style = MaterialTheme.typography.bodyMedium,
+                maxLines = if (open) Int.MAX_VALUE else 6, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.clickable { open = !open }
+            )
+        }
+        r.translating -> Row(verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp); Spacer(Modifier.width(8.dp))
+            Text("Traduction du résumé…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+
+    Spacer(Modifier.height(14.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (!have) Button(onClick = onAdd) { Text("Ajouter") }
+        if (r.series != null) TextButton(onClick = onSeries) { Text("Série") }
+        TextButton(onClick = onAgain) { Text("Autre scan") }
+    }
+}

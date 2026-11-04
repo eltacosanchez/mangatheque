@@ -111,10 +111,10 @@ fun AddVolumeScreen(
                         CircularProgressIndicator(Modifier.size(30.dp), strokeWidth = 3.dp, color = if (l.stage == 1) MaterialTheme.colorScheme.primary else MaterialTheme.extra.doing)
                         Spacer(Modifier.width(12.dp))
                         Column {
-                            Text(if (l.stage == 1) "Recherche en cours…" else "Pas trouvé du premier coup, je creuse…", style = MaterialTheme.typography.titleMedium)
+                            Text(if (l.stage == 1) "Recherche en cours…" else "Recherche approfondie…", style = MaterialTheme.typography.titleMedium)
                             Text(
-                                if (l.stage == 1) "ISBN ${d.isbn} · Google Books, Open Library et la BnF interrogés en même temps."
-                                else "Recherche approfondie sur plus de sources. Ça peut prendre jusqu'à 20 secondes.",
+                                if (l.stage == 1) "ISBN ${d.isbn}"
+                                else "Jusqu'à 20 secondes",
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -124,15 +124,15 @@ fun AddVolumeScreen(
                     Spacer(Modifier.height(6.dp))
                     Text("Étape ${l.stage} sur 2", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                LookupState.NotFound -> Notice("ISBN ${d.isbn} introuvable en ligne, même après une recherche approfondie. Remplis la fiche à la main : l'ISBN est gardé pour reconnaître les prochains tomes de la série.", MaterialTheme.extra.doing)
-                is LookupState.Error -> Notice("Impossible de joindre les sites de livres (${l.message}). Remplis la fiche à la main, l'ISBN est conservé.", MaterialTheme.colorScheme.primary)
-                is LookupState.Found -> Notice("Trouvé sur ${l.info.source} : « ${l.info.rawTitle} ». Corrige si quelque chose est faux.", MaterialTheme.extra.ok)
+                LookupState.NotFound -> Notice("Introuvable en ligne : remplis à la main.", MaterialTheme.extra.doing)
+                is LookupState.Error -> Notice("Pas de connexion : remplis à la main.", MaterialTheme.colorScheme.primary)
+                is LookupState.Found -> Notice("Trouvé : ${l.info.rawTitle}", MaterialTheme.extra.ok)
                 LookupState.Idle -> {}
             }
 
             d.alreadyOwned?.let { (v, s) ->
                 Panel {
-                    Text("Ce code-barres correspond au tome ${v.number} de « ${s.title} », déjà dans ta collection.", style = MaterialTheme.typography.bodyLarge)
+                    Text("Tome ${v.number} de « ${s.title} » : déjà à toi.", style = MaterialTheme.typography.bodyLarge)
                     Spacer(Modifier.height(10.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { vm.cancelDraft(); onSaved(v.id) }) { Text("Ouvrir le tome") }
@@ -150,11 +150,11 @@ fun AddVolumeScreen(
                 )
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (d.coverPath == null && d.coverUrl == null && !loading) {
-                        Text("Aucune couverture trouvée.", style = MaterialTheme.typography.titleSmall)
+                        Text("Pas de couverture", style = MaterialTheme.typography.titleSmall)
                         Button(onClick = onTakeCover) { Icon(Icons.Rounded.PhotoCamera, null); Spacer(Modifier.width(6.dp)); Text("Prendre en photo") }
-                        Text("Le recadrage se fait automatiquement sur le cadre.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Recadrage automatique", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
-                        Text(if (d.coverPath != null) "Couverture : ta photo" else if (loading) "Couverture : en recherche…" else "Couverture trouvée en ligne", style = MaterialTheme.typography.titleSmall)
+                        Text(if (d.coverPath != null) "Couverture : ta photo" else if (loading) "Recherche…" else "Couverture trouvée", style = MaterialTheme.typography.titleSmall)
                         OutlinedButton(onClick = onTakeCover) { Icon(Icons.Rounded.PhotoCamera, null); Spacer(Modifier.width(6.dp)); Text(if (d.coverPath != null) "Reprendre" else "Remplacer par une photo") }
                     }
                     TextButton(onClick = { pickCover.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
@@ -192,7 +192,7 @@ fun AddVolumeScreen(
 
             Panel("Infos (modifiables)") {
                 if (d.seriesInfoFound) {
-                    Text("✨ Genres, statut et image de fond complétés grâce à AniList.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.extra.ok)
+                    Text("✨ Complété avec AniList", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.extra.ok)
                     Spacer(Modifier.height(8.dp))
                 }
                 OutlinedTextField(d.author, { t -> vm.updateDraft { it.copy(author = t) } }, label = { Text("Auteur(s)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -224,7 +224,7 @@ fun AddVolumeScreen(
                     onClick = { saving = true; vm.saveDraft { saving = false; onSavedScanNext() } },
                     enabled = canSave, modifier = Modifier.fillMaxWidth().height(48.dp)
                 ) { Icon(Icons.Rounded.QrCodeScanner, null); Spacer(Modifier.width(6.dp)); Text("Ajouter et scanner le suivant") }
-                TextButton(onClick = onScanAgain, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Ce n'est pas le bon livre : rescanner") }
+                TextButton(onClick = onScanAgain, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Rescanner") }
             }
         }
     }

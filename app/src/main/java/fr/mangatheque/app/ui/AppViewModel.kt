@@ -13,6 +13,9 @@ import fr.mangatheque.app.data.BookInfo
 import fr.mangatheque.app.data.BookLookup
 import fr.mangatheque.app.data.Images
 import fr.mangatheque.app.data.MangaDb
+import fr.mangatheque.app.data.MangaInfo
+import fr.mangatheque.app.data.FrenchTranslator
+import fr.mangatheque.app.data.Repository
 import fr.mangatheque.app.data.Moment
 import fr.mangatheque.app.data.MomentWithContext
 import fr.mangatheque.app.data.ReadStatus
@@ -195,9 +198,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             genres = if (info.genres.isNotEmpty()) info.genres.joinToString(", ") else d.genres,
             ongoing = info.finished?.not() ?: d.ongoing,
             totalVolumes = if (info.finished == true && info.volumes != null && d.totalVolumes.isBlank()) info.volumes.toString() else d.totalVolumes,
+            author = info.authorsText.ifBlank { d.author },
             bannerUrl = info.imageUrl,
             seriesInfoFound = true
         )
+        // Pas de résumé français trouvé : on traduit celui d'AniList.
+        if (d.synopsis.isBlank() && info.synopsisEn != null) {
+            val fr = FrenchTranslator.toFrench(info.synopsisEn) ?: return@launch
+            draft?.takeIf { it.isbn == isbn && it.synopsis.isBlank() }?.let { draft = it.copy(synopsis = fr) }
+        }
+    }
+
+    /** Les noms de l'auteur déjà enregistré se retrouvent-ils dans ceux d'AniList ? */
+    private fun sameAuthors(current: String, info: MangaInfo): Boolean {
+        val tokens = Repository.normalize(current).split(" ").filter { it.length >= 3 }.toSet()
+        return tokens.isNotEmpty() && info.authors.any { p -> Repository.normalize(p.latin).split(" ").any { it in tokens } }
     }
 
     /** Les catégories Google (« Comics & Graphic Novels / Manga ») ne sont pas des genres utiles. */
@@ -362,11 +377,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val s = repo.seriesDao.getOne(seriesId)?.series ?: return@launch
                 val wantBanner = manual || s.bannerPath == null
-                if (!wantBanner && s.genreList.isNotEmpty()) return@launch
+                val wantInfo = s.genreList.isEmpty() || s.synopsis.isBlank() || !s.author.contains('(')
+                if (!wantBanner && !wantInfo) return@launch
                 val result = MangaDb.search(s.title)
                 if (result.isFailure) {
                     infoTried -= seriesId
-                    if (manual) toast("Impossible de joindre AniList, réessaie plus tard")
+                    if (manual) toast("AniList injoignable")
                     return@launch // on retentera à la prochaine ouverture
                 }
                 val info = result.getOrNull()
@@ -385,6 +401,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 if (info != null) {
                     if (updated.genreList.isEmpty() && info.genres.isNotEmpty()) updated = updated.copy(genres = info.genres.joinToString(", "))
                     if (updated.totalVolumes == null && info.finished == true && info.volumes != null) updated = updated.copy(totalVolumes = info.volumes, ongoing = false)
+                    // Auteur japonais : nom d'origine + nom lisible entre parenthèses.
+                    if (info.authorsText.contains('(') && !updated.author.contains('(') && (updated.author.isBlank() || sameAuthors(updated.author, info)))
+                        updated = updated.copy(author = info.authorsText)
+                    if (updated.synopsis.isBlank() && info.synopsisEn != null)
+                        FrenchTranslator.toFrench(info.synopsisEn)?.let { updated = updated.copy(synopsis = it) }
                 }
                 if (updated != fresh) repo.saveSeries(updated)
                 if (manual) toast(if (file != null) "Image de fond trouvée" else "Aucune image trouvée pour « ${s.title} »")
@@ -481,7 +502,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun checkUpdates(manual: Boolean) {
         val repoName = prefs.updateRepo
         if (repoName.isBlank()) {
-            if (manual) _update.value = UpdateState.Failed("Indique ton dépôt GitHub (utilisateur/depot) dans les réglages.")
+            if (manual) _update.value = UpdateState.Failed("Indique ton dépôt GitHub dans les réglages.")
             return
         }
         if (!manual) {

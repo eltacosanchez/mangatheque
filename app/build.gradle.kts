@@ -24,8 +24,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // ↓ À incrémenter à chaque nouvelle version publiée sur GitHub.
-        versionCode = 5
-        versionName = "1.1.2"
+        versionCode = 6
+        versionName = "1.2.0"
 
         // Dépôt GitHub par défaut pour les mises à jour ("utilisateur/depot").
         // Modifiable aussi dans l'application (Réglages) sans recompiler.
@@ -95,6 +95,7 @@ dependencies {
     implementation(libs.androidx.camera.view)
     implementation(libs.androidx.exifinterface)
     implementation(libs.mlkit.barcode)
+    implementation("com.google.mlkit:translate:17.0.3")
 
     implementation(libs.coil.compose)
     implementation(libs.okhttp)
