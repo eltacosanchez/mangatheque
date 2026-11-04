@@ -157,9 +157,6 @@ fun HomeScreen(
                         SpeedLines(Modifier.matchParentSize(), color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f))
                         Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                             Brand("Ma Manga", "thèque", Modifier.weight(1f))
-                            IconButton(onClick = { vm.toggleListMode() }) {
-                                Icon(if (vm.listMode) Icons.Rounded.GridView else Icons.AutoMirrored.Rounded.ViewList, if (vm.listMode) "Affichage en grille" else "Affichage en liste")
-                            }
                             Box {
                                 IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.Add, "Ajouter") }
                                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -229,6 +226,10 @@ fun HomeScreen(
 
             item(span = { GridItemSpan(maxLineSpan) }) {
                 SectionHeader("Ma collection", modifier = Modifier.padding(top = 8.dp)) {
+                    // Affichage en grille ou en liste
+                    IconButton(onClick = { vm.toggleListMode() }) {
+                        Icon(if (vm.listMode) Icons.Rounded.GridView else Icons.AutoMirrored.Rounded.ViewList, if (vm.listMode) "Affichage en grille" else "Affichage en liste", tint = MaterialTheme.colorScheme.primary)
+                    }
                     Box {
                         TextButton(onClick = { sortMenu = true }) {
                             Icon(Icons.AutoMirrored.Rounded.Sort, null); Spacer(Modifier.width(4.dp)); Text(vm.sort.label, maxLines = 1)

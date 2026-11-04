@@ -89,6 +89,11 @@ class Prefs(context: Context) {
         get() = sp.getString("releasesJson", "") ?: ""
         set(v) = sp.edit().putString("releasesJson", v).apply()
 
+    /** Séries dont on ne veut pas voir les sorties (identifiants). */
+    var mutedReleases: Set<String>
+        get() = sp.getStringSet("mutedReleases", emptySet()) ?: emptySet()
+        set(v) = sp.edit().putStringSet("mutedReleases", v).apply()
+
     var sortMode: String
         get() = sp.getString("sortMode", "") ?: ""
         set(v) = sp.edit().putString("sortMode", v).apply()

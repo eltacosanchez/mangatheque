@@ -118,12 +118,12 @@ private fun DialOption(icon: ImageVector, label: String, onClick: () -> Unit) {
 @Composable
 fun ReleasesShelf(vm: AppViewModel, onOpenSeries: (Long) -> Unit) {
     Column(Modifier.padding(top = 8.dp)) {
-        SectionHeader("Prochaines sorties", if (vm.releasesLoading) "Mise à jour…" else null)
+        SectionHeader("Prochaines sorties", if (vm.releasesLoading) "Mise à jour…" else "Appui long : masquer")
         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             items(vm.releases, key = { it.isbn }) { r ->
                 LaunchedEffect(r.isbn) { vm.requestCover(r.isbn) }
                 val (badge, soon) = releaseBadge(r)
-                Column(Modifier.width(112.dp).bounceClick { onOpenSeries(r.seriesId) }) {
+                Column(Modifier.width(112.dp).bounceClick(onLongClick = { vm.setFollowReleases(r.seriesId, false); vm.toast("Sorties de « ${r.title} » masquées") }) { onOpenSeries(r.seriesId) }) {
                     Cover(
                         vm.coverUrls[r.isbn], r.title, r.number, "", r.title.hashCode(),
                         badge = badge, badgeColor = if (soon) MaterialTheme.colorScheme.primary else MaterialTheme.extra.ok

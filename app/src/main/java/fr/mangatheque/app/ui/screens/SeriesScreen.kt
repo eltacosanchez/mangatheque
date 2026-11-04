@@ -45,6 +45,10 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.Wallpaper
+import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.NotificationsOff
+import androidx.compose.material3.Switch
+import fr.mangatheque.app.ui.components.mangaPanel
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.foundation.layout.size
@@ -206,6 +210,30 @@ fun SeriesScreen(
                                 if (expanded) "Réduire" else "Lire plus", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.clickable { expanded = !expanded }.padding(vertical = 4.dp)
                             )
+                        }
+                        // Suivre les sorties de cette série (section « Prochaines sorties » de l'accueil)
+                        if (data.series.ongoing) {
+                            val follows = vm.followsReleases(id)
+                            Spacer(Modifier.height(12.dp))
+                            Row(
+                                Modifier.fillMaxWidth().mangaPanel(corner = 16.dp)
+                                    .clickable { vm.setFollowReleases(id, !follows) }.padding(horizontal = 14.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    if (follows) Icons.Rounded.NotificationsActive else Icons.Rounded.NotificationsOff, null,
+                                    tint = if (follows) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text("Suivre les sorties", style = MaterialTheme.typography.titleSmall)
+                                    Text(
+                                        if (follows) "Les prochains tomes s'affichent à l'accueil" else "Pas affichée dans les sorties",
+                                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Switch(checked = follows, onCheckedChange = { vm.setFollowReleases(id, it) })
+                            }
                         }
                         if (data.volumes.isNotEmpty()) {
                             Spacer(Modifier.height(14.dp))

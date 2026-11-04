@@ -629,7 +629,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var releasesLoading by mutableStateOf(false)
         private set
 
-    init { loadReleasesCache() }
+    // (le cache des sorties est relu plus bas, une fois la liste des séries suivies prête)
+
+    /** Séries dont on ne suit pas les sorties. */
+    var mutedReleases by mutableStateOf(prefs.mutedReleases)
+        private set
+
+    fun followsReleases(seriesId: Long) = seriesId.toString() !in mutedReleases
+
+    fun setFollowReleases(seriesId: Long, follow: Boolean) {
+        mutedReleases = if (follow) mutedReleases - seriesId.toString() else mutedReleases + seriesId.toString()
+        prefs.mutedReleases = mutedReleases
+        if (follow) refreshReleases(force = true) else releases.removeAll { it.seriesId == seriesId }
+    }
+
+    init { loadReleasesCache()
+    }
 
     /** Recherche les sorties, au plus toutes les 12 heures (ou tout de suite si [force]). */
     fun refreshReleases(force: Boolean = false) {
@@ -640,7 +655,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val today = java.time.LocalDate.now()
                 val found = mutableListOf<Release>()
-                for (s in repo.seriesDao.listAll().filter { it.ongoing }) {
+                for (s in repo.seriesDao.listAll().filter { it.ongoing && followsReleases(it.id) }) {
                     val data = repo.seriesDao.getOne(s.id) ?: continue
                     if (data.volumes.isEmpty()) continue
                     val known = data.volumes.map { it.isbn }.filter { BookLookup.isValidIsbn(it) }
@@ -671,7 +686,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             for (i in 0 until arr.length()) {
                 val o = arr.getJSONObject(i)
                 val r = Release(o.getLong("s"), o.getString("t"), o.getInt("n"), o.getString("i"), o.getString("d"), o.optBoolean("o"))
-                if (r.date >= today || !r.owned) releases.add(r)
+                if ((r.date >= today || !r.owned) && followsReleases(r.seriesId)) releases.add(r)
             }
         }
     }

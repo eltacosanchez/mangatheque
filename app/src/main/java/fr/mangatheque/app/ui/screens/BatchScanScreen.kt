@@ -487,8 +487,9 @@ private fun BatchSuccess(saved: Int, covers: List<String>, left: Int, onCollecti
     var shown by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { shown = true }
     val scale by animateFloatAsState(if (shown) 1f else 0.3f, androidx.compose.animation.core.spring(dampingRatio = 0.45f, stiffness = 300f), label = "coche")
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
     Column(
-        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding().navigationBarsPadding().padding(24.dp),
+        Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
     ) {
         Box(
@@ -528,5 +529,8 @@ private fun BatchSuccess(saved: Int, covers: List<String>, left: Int, onCollecti
             }
         }
         TextButton(onClick = onScanMore) { Text("Scanner une autre pile") }
+    }
+    // Pluie de confettis par-dessus (ne bloque pas les boutons)
+    if (saved > 0) fr.mangatheque.app.ui.components.ConfettiBurst()
     }
 }
