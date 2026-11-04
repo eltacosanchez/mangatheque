@@ -6,14 +6,20 @@ import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -26,19 +32,22 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.FlashOff
 import androidx.compose.material.icons.rounded.FlashOn
-import androidx.compose.material.icons.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.Inventory2
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Button
@@ -48,6 +57,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -61,8 +71,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -80,10 +90,8 @@ import fr.mangatheque.app.ui.AppViewModel
 import fr.mangatheque.app.ui.BatchItem
 import fr.mangatheque.app.ui.BatchState
 import fr.mangatheque.app.ui.components.BarcodeCamera
+import fr.mangatheque.app.ui.components.Pill
 import fr.mangatheque.app.ui.components.ScanFrameOverlay
-import fr.mangatheque.app.ui.components.SectionHeader
-import fr.mangatheque.app.ui.components.StatCard
-import fr.mangatheque.app.ui.components.mangaPanel
 import fr.mangatheque.app.ui.theme.extra
 import kotlinx.coroutines.delay
 import java.io.File
@@ -93,15 +101,17 @@ private const val STABLE_MS = 450L
 private const val FRAME_H = 170
 
 /**
- * Scan multiple : on scanne les mangas à la suite, chacun est recherché et ajouté en arrière-plan.
- * « Terminer » affiche le récapitulatif.
+ * Scan multiple : on scanne une pile de mangas, l'appli prépare chaque fiche en arrière-plan.
+ * « Terminer » → page de vérification (on peut ouvrir chaque fiche, retirer un livre) → « Valider » enregistre tout.
  */
 @Composable
-fun BatchScanScreen(vm: AppViewModel, onClose: () -> Unit, onOpenVolume: (Long) -> Unit, onComplete: (String) -> Unit, onCollection: () -> Unit) {
-    var summary by rememberSaveable { mutableStateOf(false) }
-    if (summary) BatchSummary(vm, onBackToScan = { summary = false }, onOpenVolume = onOpenVolume, onComplete = onComplete, onCollection = onCollection)
-    else BatchCamera(vm, onFinish = { if (vm.batch.isEmpty()) onClose() else summary = true })
+fun BatchScanScreen(vm: AppViewModel, onClose: () -> Unit, onComplete: (String) -> Unit, onCollection: () -> Unit) {
+    var review by rememberSaveable { mutableStateOf(false) }
+    if (review) BatchReview(vm, onBackToScan = { review = false }, onComplete = onComplete, onCollection = onCollection)
+    else BatchCamera(vm, onFinish = { if (vm.batch.isEmpty()) onClose() else review = true })
 }
+
+// ------------------------------------------------------------------ Caméra
 
 @Composable
 private fun BatchCamera(vm: AppViewModel, onFinish: () -> Unit) {
@@ -117,8 +127,7 @@ private fun BatchCamera(vm: AppViewModel, onFinish: () -> Unit) {
     var firstSeen by remember { mutableLongStateOf(0L) }
     var lastSeen by remember { mutableLongStateOf(0L) }
     var pauseUntil by remember { mutableLongStateOf(0L) }
-    var flash by remember { mutableStateOf<String?>(null) }   // message bref après une lecture
-    var flashOk by remember { mutableStateOf(true) }
+    var flash by remember { mutableStateOf<String?>(null) }
 
     fun onFrame(code: String?) {
         val now = SystemClock.elapsedRealtime()
@@ -128,31 +137,31 @@ private fun BatchCamera(vm: AppViewModel, onFinish: () -> Unit) {
         lastSeen = now
         if (hits >= HITS && now - firstSeen >= STABLE_MS) {
             val added = vm.batchAdd(code)
-            flashOk = added
-            flash = if (added) "✓ Ajouté à la liste" else "Déjà scanné"
+            flash = if (added) "✓ Lu" else "Déjà scanné"
             if (added && vm.hapticsOn) vibrateShort(context)
             candidate = null; hits = 0
             pauseUntil = now + 1200 // le temps de changer de livre
         }
     }
-    LaunchedEffect(flash) { if (flash != null) { delay(1300); flash = null } }
+    LaunchedEffect(flash) { if (flash != null) { delay(1200); flash = null } }
 
     val progress by animateFloatAsState((hits.toFloat() / HITS).coerceIn(0f, 1f), label = "lecture")
     val frameColor = when {
-        flash != null && flashOk -> MaterialTheme.extra.ok
+        flash != null -> MaterialTheme.extra.ok
         hits > 0 -> MaterialTheme.extra.doing
         else -> Color.White
     }
     val items = vm.batch
-    val searching = items.count { it.state is BatchState.Searching }
-    val added = items.count { it.state is BatchState.Added }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
         val frameTop = (maxHeight - FRAME_H.dp) / 2
         if (granted) BarcodeCamera(Modifier.fillMaxSize(), zoom2x = true, torch = torch, onFrame = ::onFrame)
         ScanFrameOverlay(frameColor, FRAME_H.dp, showLine = flash == null)
 
-        Column(Modifier.align(Alignment.TopCenter).padding(top = frameTop + FRAME_H.dp + 14.dp).fillMaxWidth(0.82f), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            Modifier.align(Alignment.TopCenter).padding(top = frameTop + FRAME_H.dp + 14.dp).fillMaxWidth(0.82f),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
             LinearProgressIndicator(
                 progress = { if (flash != null) 1f else progress }, color = frameColor, trackColor = Color.White.copy(alpha = 0.25f),
                 modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))
@@ -164,162 +173,237 @@ private fun BatchCamera(vm: AppViewModel, onFinish: () -> Unit) {
             )
         }
 
-        Row(Modifier.align(Alignment.TopStart).statusBarsPadding().padding(8.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.align(Alignment.TopStart).statusBarsPadding().padding(8.dp).fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
+        ) {
             IconButton(onClick = onFinish) { Icon(Icons.Rounded.Close, "Fermer", tint = Color.White) }
             Text("Scan multiple", color = Color.White, style = MaterialTheme.typography.titleMedium)
             IconButton(onClick = { torch = !torch }) { Icon(if (torch) Icons.Rounded.FlashOn else Icons.Rounded.FlashOff, "Lampe", tint = Color.White) }
         }
 
-        // Panneau du bas : compteurs, derniers livres scannés, bouton Terminer
+        // Barre du bas : dernier livre lu (« Ajout : One Piece · T50 »), compteur, bouton Terminer
         Column(
             Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(12.dp).fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surface).padding(14.dp)
+                .clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surface).padding(12.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("${items.size} scanné${if (items.size > 1) "s" else ""}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                if (searching > 0) {
-                    CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp); Spacer(Modifier.width(6.dp))
-                    Text("$searching en recherche", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.width(10.dp))
+            val last = items.firstOrNull()
+            if (last != null) {
+                AnimatedContent(
+                    targetState = last, label = "dernier",
+                    contentKey = { it.isbn to it.state::class },
+                    transitionSpec = { (slideInVertically { it / 2 } + fadeIn()) togetherWith fadeOut() }
+                ) { item ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Thumb(item, Modifier.width(40.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(lineTitle(item), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(lineState(item.state), style = MaterialTheme.typography.bodySmall, color = stateIcon(item.state).second, maxLines = 1)
+                        }
+                        Box(
+                            Modifier.clip(RoundedCornerShape(99.dp)).background(MaterialTheme.colorScheme.primary).padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) { Text("×${items.size}", color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold) }
+                    }
                 }
-                Text("$added ajouté${if (added > 1) "s" else ""}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.extra.ok)
-            }
-            if (items.isNotEmpty()) {
                 Spacer(Modifier.height(10.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(items.take(20), key = { it.isbn }) { BatchThumb(it) }
-                }
             }
-            Spacer(Modifier.height(12.dp))
             Button(onClick = onFinish, modifier = Modifier.fillMaxWidth().height(50.dp)) {
-                Text(if (items.isEmpty()) "Fermer" else "Terminer (${items.size})")
+                Text(if (items.isEmpty()) "Fermer" else "Terminer les scans")
             }
         }
     }
 }
 
-/** Miniature d'un livre scanné, avec son état (en recherche, ajouté, déjà possédé…). */
-@Composable
-private fun BatchThumb(item: BatchItem) {
-    val (icon, color) = stateIcon(item.state)
-    Box(Modifier.width(48.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(6.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
-        coverOf(item.state)?.let { AsyncImage(File(it), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
-        Box(Modifier.align(Alignment.BottomEnd).padding(2.dp).size(18.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.Center) {
-            if (item.state is BatchState.Searching) CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)
-            else Icon(icon, null, tint = color, modifier = Modifier.size(14.dp))
-        }
-    }
-}
+// ------------------------------------------------------------------ Vérification
 
-@Composable
-private fun stateIcon(s: BatchState): Pair<ImageVector, Color> = when (s) {
-    is BatchState.Added -> (if (s.needsCheck) Icons.Rounded.WarningAmber else Icons.Rounded.CheckCircle) to (if (s.needsCheck) MaterialTheme.extra.doing else MaterialTheme.extra.ok)
-    is BatchState.Owned, is BatchState.Duplicate -> Icons.Rounded.Inventory2 to MaterialTheme.extra.muted
-    BatchState.NotFound -> Icons.Rounded.HelpOutline to MaterialTheme.colorScheme.primary
-    is BatchState.Failed -> Icons.Rounded.ErrorOutline to MaterialTheme.colorScheme.error
-    BatchState.Searching -> Icons.Rounded.HelpOutline to MaterialTheme.extra.muted
-}
-
-private fun coverOf(s: BatchState): String? = when (s) {
-    is BatchState.Added -> s.cover
-    is BatchState.Owned -> s.cover
-    else -> null
-}
-
-/** Récapitulatif : ce qui a été ajouté, déjà possédé, introuvable. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun BatchSummary(vm: AppViewModel, onBackToScan: () -> Unit, onOpenVolume: (Long) -> Unit, onComplete: (String) -> Unit, onCollection: () -> Unit) {
-    BackHandler(onBack = onCollection)
+private fun BatchReview(vm: AppViewModel, onBackToScan: () -> Unit, onComplete: (String) -> Unit, onCollection: () -> Unit) {
+    BackHandler(onBack = onBackToScan)
     val items = vm.batch
-    val added = items.filter { it.state is BatchState.Added }
-    val owned = items.filter { it.state is BatchState.Owned || it.state is BatchState.Duplicate }
-    val problems = items.filter { it.state is BatchState.NotFound || it.state is BatchState.Failed }
-    val searching = items.filter { it.state is BatchState.Searching }
+    val ready = items.count { it.state is BatchState.Ready }
+    val searching = items.count { it.state is BatchState.Searching }
+    val owned = items.count { it.state is BatchState.Owned || it.state is BatchState.Duplicate }
+    val missing = items.count { it.state is BatchState.NotFound || it.state is BatchState.Failed }
+    val saved = items.count { it.state is BatchState.Saved }
+    var open by remember { mutableStateOf<BatchItem?>(null) }
+    val saving = vm.batchSaving
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("Récapitulatif", style = MaterialTheme.typography.headlineSmall) },
-                navigationIcon = { IconButton(onClick = onCollection) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Retour") } },
+                title = { Text("Vérifie avant d'enregistrer", style = MaterialTheme.typography.headlineSmall) },
+                navigationIcon = { IconButton(onClick = onBackToScan) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Continuer à scanner") } },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
+        },
+        bottomBar = {
+            Column(Modifier.background(MaterialTheme.colorScheme.surface).navigationBarsPadding().padding(16.dp)) {
+                if (saving != null) {
+                    Text("Enregistrement… ${saving.first + 1} / ${saving.second}", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(8.dp))
+                    LinearProgressIndicator(progress = { (saving.first + 1f) / saving.second }, modifier = Modifier.fillMaxWidth())
+                } else if (ready > 0 || searching > 0) {
+                    Button(
+                        onClick = { vm.batchValidate { _, left -> if (left == 0) onCollection() } },
+                        enabled = ready > 0, modifier = Modifier.fillMaxWidth().height(52.dp)
+                    ) { Text(if (searching > 0) "Valider ($ready) · $searching en recherche" else "Valider ($ready)") }
+                    TextButton(onClick = onBackToScan, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Continuer à scanner") }
+                } else {
+                    Button(onClick = onCollection, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("Voir ma bibliothèque") }
+                }
+            }
         }
     ) { padding ->
-        LazyColumn(
-            Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 104.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.fillMaxSize().padding(padding)
         ) {
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    StatCard("${added.size}", "ajoutés", Modifier.weight(1f), color = MaterialTheme.extra.ok)
-                    StatCard("${owned.size}", "déjà à toi", Modifier.weight(1f))
-                    StatCard("${problems.size}", "à compléter", Modifier.weight(1f), color = MaterialTheme.colorScheme.primary)
-                }
-                if (searching.isNotEmpty()) {
-                    Spacer(Modifier.height(10.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp); Spacer(Modifier.width(8.dp))
-                        Text("${searching.size} encore en recherche…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-                Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onCollection, modifier = Modifier.weight(1f)) { Text("Voir ma collection") }
-                    OutlinedButton(onClick = onBackToScan, modifier = Modifier.weight(1f)) { Text("Scanner encore") }
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Column {
+                    Text(
+                        buildList {
+                            add("${items.size} livre${if (items.size > 1) "s" else ""}")
+                            if (ready > 0) add("$ready prêt${if (ready > 1) "s" else ""}")
+                            if (saved > 0) add("$saved enregistré${if (saved > 1) "s" else ""}")
+                            if (owned > 0) add("$owned déjà à toi")
+                            if (missing > 0) add("$missing à compléter")
+                        }.joinToString(" · "),
+                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text("Touche un livre pour voir sa fiche.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            if (problems.isNotEmpty()) {
-                item { SectionHeader("À compléter", modifier = Modifier.padding(top = 12.dp)) }
-                items(problems, key = { it.isbn }) { BatchRow(it, vm, onOpenVolume, onComplete) }
+            items(items, key = { it.isbn }) { item ->
+                Column(Modifier.clickable { open = item }) {
+                    Thumb(item, Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(6.dp))
+                    Text(lineTitle(item), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(lineState(item.state), style = MaterialTheme.typography.bodySmall, color = stateIcon(item.state).second, maxLines = 1)
+                }
             }
-            if (added.isNotEmpty()) {
-                item { SectionHeader("Ajoutés", modifier = Modifier.padding(top = 12.dp)) }
-                items(added, key = { it.isbn }) { BatchRow(it, vm, onOpenVolume, onComplete) }
-            }
-            if (owned.isNotEmpty()) {
-                item { SectionHeader("Déjà dans ta collection", modifier = Modifier.padding(top = 12.dp)) }
-                items(owned, key = { it.isbn }) { BatchRow(it, vm, onOpenVolume, onComplete) }
-            }
-            if (searching.isNotEmpty()) {
-                item { SectionHeader("En recherche", modifier = Modifier.padding(top = 12.dp)) }
-                items(searching, key = { it.isbn }) { BatchRow(it, vm, onOpenVolume, onComplete) }
-            }
+        }
+    }
+
+    open?.let { item ->
+        // On relit l'élément à jour (sa recherche a pu se terminer depuis).
+        val current = items.firstOrNull { it.isbn == item.isbn } ?: run { open = null; return }
+        ModalBottomSheet(onDismissRequest = { open = null }) {
+            BookSheet(
+                current,
+                onRemove = { vm.batchRemove(current.isbn); open = null },
+                onComplete = { open = null; onComplete(current.isbn) },
+                onRetry = { vm.batchRetry(current.isbn) }
+            )
         }
     }
 }
 
+/** Fiche d'un livre scanné, avant enregistrement. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun BatchRow(item: BatchItem, vm: AppViewModel, onOpenVolume: (Long) -> Unit, onComplete: (String) -> Unit) {
+private fun BookSheet(item: BatchItem, onRemove: () -> Unit, onComplete: () -> Unit, onRetry: () -> Unit) {
     val s = item.state
-    val (title, detail) = when (s) {
-        is BatchState.Added -> "${s.title} · T${s.number}" to if (s.needsCheck) "Ajouté · numéro à vérifier" else "Ajouté"
-        is BatchState.Owned -> "${s.title} · T${s.number}" to "Déjà dans ta collection"
-        is BatchState.Duplicate -> "${s.title} · T${s.number}" to "Ce tome est déjà présent"
-        BatchState.NotFound -> "ISBN ${item.isbn}" to "Introuvable en ligne"
-        is BatchState.Failed -> "ISBN ${item.isbn}" to s.message
-        BatchState.Searching -> "ISBN ${item.isbn}" to "Recherche…"
-    }
-    Row(
-        Modifier.fillMaxWidth().mangaPanel(corner = 16.dp)
-            .then(if (s is BatchState.Added) Modifier.clickable { onOpenVolume(s.volumeId) } else Modifier)
-            .padding(10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        BatchThumb(item)
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(detail, style = MaterialTheme.typography.bodySmall, color = stateIcon(s).second)
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 20.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Thumb(item, Modifier.width(110.dp))
+            Column(Modifier.weight(1f)) {
+                Text(lineTitle(item), style = MaterialTheme.typography.headlineSmall)
+                if (s is BatchState.Ready) {
+                    val author = s.manga?.authorsText?.takeIf { it.isNotBlank() } ?: s.book.authors
+                    if (author.isNotBlank()) Text(author, style = MaterialTheme.typography.bodyMedium)
+                    if (s.book.publisher.isNotBlank()) Text(s.book.publisher, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(6.dp))
+                    Pill(if (s.knownSeries) "Dans ta série" else "Nouvelle série", if (s.knownSeries) MaterialTheme.extra.ok else MaterialTheme.colorScheme.primary)
+                    if (s.needsCheck) { Spacer(Modifier.height(4.dp)); Pill("Numéro à vérifier", MaterialTheme.extra.doing) }
+                } else {
+                    Text(lineState(s), style = MaterialTheme.typography.bodyMedium, color = stateIcon(s).second)
+                }
+                Text("ISBN ${item.isbn}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
+            }
         }
-        when (s) {
-            BatchState.NotFound -> TextButton(onClick = { onComplete(item.isbn) }) { Text("Compléter") }
-            is BatchState.Failed -> TextButton(onClick = { vm.batchRetry(item.isbn) }) { Text("Réessayer") }
-            else -> {}
+        if (s is BatchState.Ready) {
+            val genres = s.manga?.genres.orEmpty()
+            if (genres.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { genres.forEach { Pill(it) } }
+            }
+            if (s.book.description.isNotBlank()) {
+                Spacer(Modifier.height(12.dp))
+                Text("Résumé", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(s.book.description, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            when (s) {
+                BatchState.NotFound -> Button(onClick = onComplete) { Text("Compléter à la main") }
+                is BatchState.Failed -> Button(onClick = onRetry) { Text("Réessayer") }
+                else -> {}
+            }
+            if (s !is BatchState.Saved) OutlinedButton(onClick = onRemove) { Text("Retirer de la liste") }
         }
     }
+}
+
+// ------------------------------------------------------------------ Petits éléments
+
+/** Couverture d'un livre scanné, avec une pastille d'état. */
+@Composable
+private fun Thumb(item: BatchItem, modifier: Modifier) {
+    val (icon, color) = stateIcon(item.state)
+    Box(modifier.aspectRatio(2f / 3f).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
+        coverOf(item.state)?.let { c ->
+            AsyncImage(if (c.startsWith("http")) c else File(c), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        }
+        Box(
+            Modifier.align(Alignment.BottomEnd).padding(4.dp).size(22.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surface),
+            contentAlignment = Alignment.Center
+        ) {
+            if (item.state is BatchState.Searching) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+            else Icon(icon, null, tint = color, modifier = Modifier.size(16.dp))
+        }
+    }
+}
+
+private fun lineTitle(item: BatchItem): String = when (val s = item.state) {
+    is BatchState.Ready -> "${s.seriesTitle} · T${s.number}"
+    is BatchState.Saved -> "${s.title} · T${s.number}"
+    is BatchState.Owned -> "${s.title} · T${s.number}"
+    is BatchState.Duplicate -> "${s.title} · T${s.number}"
+    else -> "ISBN ${item.isbn}"
+}
+
+private fun lineState(s: BatchState): String = when (s) {
+    BatchState.Searching -> "Recherche…"
+    is BatchState.Ready -> if (s.needsCheck) "Ajout · numéro à vérifier" else "Ajout"
+    is BatchState.Saved -> "Enregistré ✓"
+    is BatchState.Owned -> "Déjà dans ta bibliothèque"
+    is BatchState.Duplicate -> "Tome déjà présent"
+    BatchState.NotFound -> "Introuvable"
+    is BatchState.Failed -> s.message
+}
+
+@Composable
+private fun stateIcon(s: BatchState): Pair<ImageVector, Color> = when (s) {
+    is BatchState.Ready -> (if (s.needsCheck) Icons.Rounded.WarningAmber else Icons.Rounded.CheckCircle) to (if (s.needsCheck) MaterialTheme.extra.doing else MaterialTheme.colorScheme.primary)
+    is BatchState.Saved -> Icons.Rounded.CheckCircle to MaterialTheme.extra.ok
+    is BatchState.Owned, is BatchState.Duplicate -> Icons.Rounded.Inventory2 to MaterialTheme.extra.muted
+    BatchState.NotFound -> Icons.AutoMirrored.Rounded.HelpOutline to MaterialTheme.colorScheme.primary
+    is BatchState.Failed -> Icons.Rounded.ErrorOutline to MaterialTheme.colorScheme.error
+    BatchState.Searching -> Icons.AutoMirrored.Rounded.HelpOutline to MaterialTheme.extra.muted
+}
+
+private fun coverOf(s: BatchState): String? = when (s) {
+    is BatchState.Ready -> s.book.coverUrl
+    is BatchState.Saved -> s.cover
+    is BatchState.Owned -> s.cover
+    else -> null
 }
 
 private fun vibrateShort(context: android.content.Context) {

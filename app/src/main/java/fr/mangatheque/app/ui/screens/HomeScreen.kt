@@ -129,6 +129,7 @@ fun HomeScreen(
     var menu by remember { mutableStateOf(false) }
     var sortMenu by remember { mutableStateOf(false) }
     var isbnDialog by remember { mutableStateOf(false) }
+    var scanChooser by remember { mutableStateOf(false) }
     var backupHidden by remember { mutableStateOf(false) }
     var seriesSheet by remember { mutableStateOf<SeriesWithVolumes?>(null) }
     var volumeSheet by remember { mutableStateOf<Pair<SeriesWithVolumes, Volume>?>(null) }
@@ -247,7 +248,7 @@ fun HomeScreen(
         }
 
         ExtendedFloatingActionButton(
-            onClick = onScan,
+            onClick = { scanChooser = true },
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
             icon = { Icon(Icons.Rounded.QrCodeScanner, null) },
@@ -256,6 +257,9 @@ fun HomeScreen(
         )
     }
 
+    if (scanChooser) {
+        ScanChooserSheet(onDismiss = { scanChooser = false }, onSingle = { scanChooser = false; onScan() }, onMultiple = { scanChooser = false; onBatch() })
+    }
     seriesSheet?.let { s ->
         SeriesActionsSheet(
             s, onDismiss = { seriesSheet = null },

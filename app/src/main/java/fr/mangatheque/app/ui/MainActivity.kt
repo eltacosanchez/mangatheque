@@ -207,7 +207,6 @@ fun MangaNav(vm: AppViewModel) {
                 composable(Routes.BATCH) {
                     BatchScanScreen(vm,
                         onClose = { nav.popBackStack() },
-                        onOpenVolume = { nav.navigate(Routes.volume(it)) },
                         onComplete = { isbn -> vm.startDraft(isbn); nav.navigate(Routes.ADD) },
                         onCollection = { vm.batchReset(); nav.popBackStack(Routes.HOME, inclusive = false) })
                 }

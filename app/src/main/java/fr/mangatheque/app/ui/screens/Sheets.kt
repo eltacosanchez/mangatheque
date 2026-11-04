@@ -15,6 +15,10 @@ import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.DocumentScanner
+import androidx.compose.material.icons.rounded.QrCodeScanner
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.HourglassTop
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -111,6 +115,34 @@ fun VolumeActionsSheet(
             }
             SheetItem(Icons.AutoMirrored.Rounded.OpenInNew, "Ouvrir la fiche") { onDismiss(); onOpen() }
             SheetItem(Icons.Rounded.Delete, "Supprimer le tome", MaterialTheme.colorScheme.error) { onDismiss(); onDelete() }
+        }
+    }
+}
+
+/** Choix du bouton « Scanner » : un seul livre (avec vérification) ou toute une pile. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ScanChooserSheet(onDismiss: () -> Unit, onSingle: () -> Unit, onMultiple: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            ChooserOption(Icons.Rounded.QrCodeScanner, "Scan unique", "Un livre, fiche vérifiée tout de suite", onSingle)
+            ChooserOption(Icons.Rounded.DocumentScanner, "Scan multiple", "Toute une pile, tu valides à la fin", onMultiple)
+        }
+    }
+}
+
+@Composable
+private fun ChooserOption(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(androidx.compose.foundation.shape.RoundedCornerShape(18.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant).clickable(onClick = onClick).padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        fr.mangatheque.app.ui.components.IconBadge(icon, size = 44.dp)
+        Spacer(Modifier.width(14.dp))
+        Column {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

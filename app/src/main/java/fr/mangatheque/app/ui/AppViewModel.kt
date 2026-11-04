@@ -368,7 +368,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             if (chain) chainCount++ else chainCount = 0
             // Livre « introuvable » du scan multiple complété à la main : on le marque comme ajouté.
             batch.indexOfFirst { it.isbn == d.isbn && d.isbn.isNotBlank() }.takeIf { it >= 0 }?.let { i ->
-                batch[i] = batch[i].copy(state = BatchState.Added(id, title, number, cover, needsCheck = false))
+                batch[i] = batch[i].copy(state = BatchState.Saved(id, title, number, cover))
             }
             draft = null
             toast("Tome $number ajouté à « $title »")
@@ -407,15 +407,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (f == null) toast("Image illisible") else applyCover(target, f)
     }
 
-    // ----- Scan multiple : file de recherche en arrière-plan -----
-    /** Livres scannés pendant la session de scan multiple, dans l'ordre (le plus récent en premier). */
+    // ----- Scan multiple : on scanne, l'appli prépare les fiches, on vérifie, puis on valide -----
+    /** Livres scannés pendant la session de scan multiple (le plus récent en premier). */
     val batch = mutableStateListOf<BatchItem>()
     private val batchSlots = Semaphore(3)   // 3 recherches en même temps
     private val batchDb = Mutex()           // une seule écriture à la fois (évite de créer 2 fois la même série)
+    /** Enregistrement en cours : (fait, total). */
+    var batchSaving by mutableStateOf<Pair<Int, Int>?>(null)
+        private set
 
-    fun batchReset() { if (batch.none { it.state is BatchState.Searching }) batch.clear() }
+    fun batchReset() { if (batch.none { it.state is BatchState.Searching } && batchSaving == null) batch.clear() }
 
-    /** Ajoute un ISBN à la file ; retourne false s'il a déjà été scanné dans cette session. */
+    /** Ajoute un ISBN à la liste ; retourne false s'il a déjà été scanné dans cette session. */
     fun batchAdd(isbn: String): Boolean {
         val clean = BookLookup.normalizeIsbn(isbn)
         if (batch.any { it.isbn == clean }) return false
@@ -424,6 +427,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         return true
     }
 
+    fun batchRemove(isbn: String) { batch.removeAll { it.isbn == isbn } }
+
     fun batchRetry(isbn: String) {
         val i = batch.indexOfFirst { it.isbn == isbn }.takeIf { it >= 0 } ?: return
         batch[i] = batch[i].copy(state = BatchState.Searching)
@@ -431,46 +436,69 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun launchBatch(isbn: String) = viewModelScope.launch {
-        val state = batchSlots.withPermit { runCatching { autoAdd(isbn) }.getOrElse { BatchState.Failed("Erreur") } }
+        val state = batchSlots.withPermit { runCatching { prepare(isbn) }.getOrElse { BatchState.Failed("Erreur") } }
         val i = batch.indexOfFirst { it.isbn == isbn }
         if (i >= 0) batch[i] = batch[i].copy(state = state)
     }
 
-    /** Cherche le livre et l'ajoute directement à la collection (sans écran de vérification). */
-    private suspend fun autoAdd(isbn: String): BatchState {
+    /** Prépare la fiche du livre (recherche, série, numéro) sans rien enregistrer. */
+    private suspend fun prepare(isbn: String): BatchState {
         repo.findVolumeByIsbn(isbn)?.let { (v, s) -> return BatchState.Owned(s.title, v.number, v.coverPath) }
         val book = try { BookLookup.lookup(isbn) } catch (e: IOException) { return BatchState.Failed("Pas de réseau") }
             ?: return BatchState.NotFound
-        // Infos de série et couverture cherchées avant d'écrire (hors verrou, en parallèle des autres livres).
         val title = book.seriesTitle.ifBlank { book.rawTitle }.ifBlank { "Sans titre" }
-        val cover = book.coverUrl?.let { Images.download(getApplication(), it)?.path }
-        return batchDb.withLock {
-            repo.findVolumeByIsbn(isbn)?.let { (v, s) -> return@withLock BatchState.Owned(s.title, v.number, v.coverPath) }
-            val guess = repo.guessSeries(isbn, title)
-            val seriesId = guess?.id ?: run {
-                val info = MangaDb.search(title).getOrNull()
-                val banner = info?.imageUrl?.let { Images.download(getApplication(), it, "banner")?.path }
-                repo.saveSeries(
-                    Series(
-                        title = title, author = info?.authorsText?.ifBlank { null } ?: book.authors, publisher = book.publisher,
-                        genres = info?.genres?.joinToString(", ") ?: cleanCategories(book.categories).joinToString(", "),
-                        synopsis = book.description, ongoing = info?.finished?.not() ?: true,
-                        totalVolumes = if (info?.finished == true) info.volumes else null,
-                        colorSeed = title.hashCode(), bannerPath = banner
-                    )
-                )
+        val guess = repo.guessSeries(isbn, title)
+        val manga = MangaDb.search(guess?.title ?: title).getOrNull()
+        val number = book.volumeNumber ?: guess?.let { nextNumber(it.id).toInt() } ?: 1
+        return BatchState.Ready(book, guess?.title ?: title, number, guess != null, book.volumeNumber == null, manga)
+    }
+
+    /** Enregistre dans la bibliothèque tous les livres prêts de la liste. */
+    fun batchValidate(onDone: (saved: Int, left: Int) -> Unit) {
+        if (batchSaving != null) return
+        val ready = batch.filter { it.state is BatchState.Ready }
+        if (ready.isEmpty()) { onDone(0, batch.count { it.state is BatchState.NotFound || it.state is BatchState.Failed }); return }
+        viewModelScope.launch {
+            var saved = 0
+            ready.forEachIndexed { k, item ->
+                batchSaving = k to ready.size
+                val r = item.state as BatchState.Ready
+                val state = runCatching { save(item.isbn, r) }.getOrElse { BatchState.Failed("Erreur d'enregistrement") }
+                if (state is BatchState.Saved) saved++
+                val i = batch.indexOfFirst { it.isbn == item.isbn }
+                if (i >= 0) batch[i] = batch[i].copy(state = state)
             }
-            val seriesTitle = guess?.title ?: title
-            val number = book.volumeNumber ?: nextNumber(seriesId).toInt()
-            if (repo.volumeDao.listForSeries(seriesId).any { it.number == number }) {
-                cover?.let { runCatching { File(it).delete() } }
-                return@withLock BatchState.Duplicate(seriesTitle, number)
-            }
-            val id = repo.addVolume(
-                Volume(seriesId = seriesId, number = number, isbn = isbn, coverPath = cover, summary = book.description.takeIf { it.isNotBlank() })
-            )
-            BatchState.Added(id, seriesTitle, number, cover, needsCheck = book.volumeNumber == null)
+            batchSaving = null
+            toast("$saved manga${if (saved > 1) "s" else ""} ajouté${if (saved > 1) "s" else ""} à ta bibliothèque")
+            onDone(saved, batch.count { it.state is BatchState.NotFound || it.state is BatchState.Failed })
         }
+    }
+
+    private suspend fun save(isbn: String, r: BatchState.Ready): BatchState = batchDb.withLock {
+        repo.findVolumeByIsbn(isbn)?.let { (v, s) -> return@withLock BatchState.Owned(s.title, v.number, v.coverPath) }
+        val book = r.book
+        // La série a pu être créée par un livre précédent de la même liste.
+        val guess = repo.guessSeries(isbn, r.seriesTitle)
+        val seriesId = guess?.id ?: run {
+            val info = r.manga
+            val banner = info?.imageUrl?.let { Images.download(getApplication(), it, "banner")?.path }
+            repo.saveSeries(
+                Series(
+                    title = r.seriesTitle, author = info?.authorsText?.ifBlank { null } ?: book.authors, publisher = book.publisher,
+                    genres = info?.genres?.joinToString(", ") ?: cleanCategories(book.categories).joinToString(", "),
+                    synopsis = book.description, ongoing = info?.finished?.not() ?: true,
+                    totalVolumes = if (info?.finished == true) info.volumes else null,
+                    colorSeed = r.seriesTitle.hashCode(), bannerPath = banner
+                )
+            )
+        }
+        val title = guess?.title ?: r.seriesTitle
+        if (repo.volumeDao.listForSeries(seriesId).any { it.number == r.number }) return@withLock BatchState.Duplicate(title, r.number)
+        val cover = book.coverUrl?.let { Images.download(getApplication(), it)?.path }
+        val id = repo.addVolume(
+            Volume(seriesId = seriesId, number = r.number, isbn = isbn, coverPath = cover, summary = book.description.takeIf { it.isNotBlank() })
+        )
+        BatchState.Saved(id, title, r.number, cover)
     }
 
     // ----- Couvertures manquantes -----
@@ -748,7 +776,12 @@ data class BatchItem(val isbn: String, val state: BatchState)
 
 sealed class BatchState {
     data object Searching : BatchState()
-    data class Added(val volumeId: Long, val title: String, val number: Int, val cover: String?, val needsCheck: Boolean) : BatchState()
+    /** Fiche prête, pas encore enregistrée. [knownSeries] = la série existe déjà dans la bibliothèque. */
+    data class Ready(
+        val book: BookInfo, val seriesTitle: String, val number: Int,
+        val knownSeries: Boolean, val needsCheck: Boolean, val manga: MangaInfo?
+    ) : BatchState()
+    data class Saved(val volumeId: Long, val title: String, val number: Int, val cover: String?) : BatchState()
     data class Owned(val title: String, val number: Int, val cover: String?) : BatchState()
     data class Duplicate(val title: String, val number: Int) : BatchState()
     data object NotFound : BatchState()
