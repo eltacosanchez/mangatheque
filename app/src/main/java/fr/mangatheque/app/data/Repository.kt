@@ -69,10 +69,11 @@ class Repository(private val context: Context, private val db: AppDatabase) {
     }
 
     /** Ajoute d'un coup les tomes [from]..[to] qui ne sont pas encore dans la série. Retourne le nombre ajouté. */
-    suspend fun addVolumeRange(seriesId: Long, from: Int, to: Int): Int {
+    suspend fun addVolumeRange(seriesId: Long, from: Int, to: Int, isbns: Map<Int, String> = emptyMap()): Int {
         val owned = volumeDao.listForSeries(seriesId).map { it.number }.toSet()
         var added = 0
-        for (n in from..to) if (n !in owned) { volumeDao.insert(Volume(seriesId = seriesId, number = n)); added++ }
+        for (n in from..to) if (n !in owned) { volumeDao.insert(Volume(seriesId = seriesId, number = n, isbn = isbns[n].orEmpty())); added++ }
+        refreshIsbnPrefix(seriesId)
         return added
     }
 

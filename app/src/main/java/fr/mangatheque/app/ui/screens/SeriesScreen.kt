@@ -14,6 +14,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import fr.mangatheque.app.data.Volume
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -66,6 +67,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -104,7 +106,10 @@ fun SeriesScreen(
     var volumeSheet by remember { mutableStateOf<Volume?>(null) }
     val haptic = rememberHaptic(vm)
     // Couvertures des tomes enregistrés sans image : on les recherche une fois.
-    LaunchedEffect(id) { vm.fetchMissingCovers(id) }
+    LaunchedEffect(id) {
+        vm.fetchMissingCovers(id)
+        vm.syncFrenchEdition(id) // tomes parus en France (BnF) : couvertures, nombre de tomes, statut
+    }
     var confirmAllRead by remember { mutableStateOf(false) }
     var addMissing by remember { mutableStateOf<Int?>(null) }
     var rangeDialog by remember { mutableStateOf(false) }
@@ -239,7 +244,9 @@ fun SeriesScreen(
                         }
                     } else {
                         Column(Modifier.clickable { addMissing = n }) {
-                            MissingCover(n)
+                            val isbn = vm.editions[id]?.get(n)
+                            if (isbn != null) LaunchedEffect(isbn) { vm.requestCover(isbn) }
+                            MissingCover(n, imageUrl = isbn?.let { vm.coverUrls[it] })
                             Spacer(Modifier.height(6.dp))
                             Text("T$n · à acheter", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                         }
@@ -288,7 +295,19 @@ fun SeriesScreen(
         AlertDialog(
             onDismissRequest = { addMissing = null },
             title = { Text("Tome $n") },
-            text = { Text("L'ajouter à ta collection ?") },
+            text = {
+                val url = vm.editions[id]?.get(n)?.let { vm.coverUrls[it] }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (url != null) {
+                        coil.compose.AsyncImage(
+                            url, null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                            modifier = Modifier.width(72.dp).aspectRatio(2f / 3f).clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                        )
+                        Spacer(Modifier.width(14.dp))
+                    }
+                    Text("L'ajouter à ta collection ?")
+                }
+            },
             confirmButton = { TextButton(onClick = { vm.addMissingVolume(id, n); addMissing = null }) { Text("Je l'ai !") } },
             dismissButton = { TextButton(onClick = { addMissing = null }) { Text("Annuler") } }
         )

@@ -147,9 +147,31 @@ private fun GeneratedCover(title: String, number: Int?, publisher: String, seed:
     }
 }
 
-/** Case « manquant » en pointillés. */
+/**
+ * Case d'un tome manquant : la vraie couverture en gris estompé si on la connaît,
+ * sinon une case en pointillés avec le numéro.
+ */
 @Composable
-fun MissingCover(number: Int, modifier: Modifier = Modifier) {
+fun MissingCover(number: Int, modifier: Modifier = Modifier, imageUrl: String? = null) {
+    if (imageUrl != null) {
+        val gray = remember { ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) }) }
+        val shape = RoundedCornerShape(12.dp)
+        Box(
+            modifier.aspectRatio(2f / 3f).clip(shape)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+        ) {
+            AsyncImage(
+                model = imageUrl, contentDescription = "Couverture du tome $number (manquant)", contentScale = ContentScale.Crop,
+                colorFilter = gray, modifier = Modifier.fillMaxSize().alpha(0.45f)
+            )
+            Box(
+                Modifier.align(Alignment.TopCenter).padding(top = 6.dp).clip(RoundedCornerShape(99.dp))
+                    .background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 8.dp, vertical = 2.dp)
+            ) { Text("Manquant", style = MaterialTheme.typography.labelSmall, color = Color.White) }
+        }
+        return
+    }
     Box(
         modifier
             .aspectRatio(2f / 3f)

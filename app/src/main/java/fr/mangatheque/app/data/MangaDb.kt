@@ -71,15 +71,19 @@ object MangaDb {
     )
 
     /** Succès(null) = rien trouvé ; échec = aucune base joignable (on pourra réessayer plus tard). */
+    /** Résultats déjà trouvés pendant la session. */
+    private val found = java.util.concurrent.ConcurrentHashMap<String, MangaInfo>()
+
     suspend fun search(title: String): Result<MangaInfo?> = withContext(Dispatchers.IO) {
+        found[Repository.normalize(title)]?.let { return@withContext Result.success(it) }
         val queries = listOf(searchTerm(title), title.trim()).distinct().filter { it.length >= 2 }
         var anyAnswered = false
         var lastError: Exception? = null
         for (q in queries) {
-            try { aniList(q, title)?.let { return@withContext Result.success(it) }; anyAnswered = true } catch (e: Exception) { lastError = e }
+            try { aniList(q, title)?.let { found[Repository.normalize(title)] = it; return@withContext Result.success(it) }; anyAnswered = true } catch (e: Exception) { lastError = e }
         }
         for (q in queries.take(1)) {
-            try { jikan(q, title)?.let { return@withContext Result.success(it) }; anyAnswered = true } catch (e: Exception) { lastError = e }
+            try { jikan(q, title)?.let { found[Repository.normalize(title)] = it; return@withContext Result.success(it) }; anyAnswered = true } catch (e: Exception) { lastError = e }
         }
         if (anyAnswered) Result.success(null) else Result.failure(lastError ?: IOException("Pas de réseau"))
     }

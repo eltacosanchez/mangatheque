@@ -13,6 +13,8 @@ import fr.mangatheque.app.data.BookInfo
 import fr.mangatheque.app.data.BookLookup
 import fr.mangatheque.app.data.Images
 import fr.mangatheque.app.data.MangaDb
+import fr.mangatheque.app.data.Editions
+import androidx.compose.runtime.mutableStateMapOf
 import fr.mangatheque.app.data.MangaInfo
 import fr.mangatheque.app.data.FrenchTranslator
 import fr.mangatheque.app.data.Repository
@@ -498,16 +500,67 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun updateVolume(v: Volume) = viewModelScope.launch { repo.updateVolume(v); toast("Tome mis à jour") }
     fun deleteVolume(v: Volume, onDone: () -> Unit) = viewModelScope.launch { repo.deleteVolume(v); toast("Tome supprimé"); onDone() }
 
-    /** Ajoute rapidement un tome manquant (sans ISBN) à une série. */
+    /** Ajoute un tome manquant ; s'il est connu de la BnF, il reçoit son ISBN et sa vraie couverture. */
     fun addMissingVolume(seriesId: Long, number: Int) = viewModelScope.launch {
         if (repo.volumeDao.listForSeries(seriesId).any { it.number == number }) return@launch
-        repo.addVolume(Volume(seriesId = seriesId, number = number))
+        val isbn = editions[seriesId]?.get(number).orEmpty()
+        val cover = if (isbn.isNotBlank()) (coverUrls[isbn] ?: BookLookup.findCover(isbn))?.let { Images.download(getApplication(), it)?.path } else null
+        repo.addVolume(Volume(seriesId = seriesId, number = number, isbn = isbn, coverPath = cover))
         toast("Tome $number ajouté")
     }
 
     fun addVolumeRange(seriesId: Long, from: Int, to: Int) = viewModelScope.launch {
-        val n = repo.addVolumeRange(seriesId, from, to)
+        val n = repo.addVolumeRange(seriesId, from, to, editions[seriesId].orEmpty())
         toast(if (n == 0) "Tu avais déjà tous ces tomes" else "$n tome${if (n > 1) "s" else ""} ajouté${if (n > 1) "s" else ""}")
+        coversTried -= seriesId
+        fetchMissingCovers(seriesId) // les couvertures arrivent en arrière-plan
+    }
+
+    // ----- Édition française (BnF) : tomes parus, ISBN et couvertures -----
+    /** Série → (numéro de tome → ISBN de l'édition française). */
+    val editions = mutableStateMapOf<Long, Map<Int, String>>()
+    /** ISBN → adresse de la couverture (pour afficher les tomes manquants). */
+    val coverUrls = mutableStateMapOf<String, String>()
+    private val coverChecked = mutableSetOf<String>()
+    private val editionsTried = mutableSetOf<Long>()
+
+    /**
+     * Récupère la liste des tomes parus en France : met à jour le nombre de tomes parus,
+     * le statut (en cours / terminée) et donne leur ISBN (donc leur couverture) aux tomes ajoutés à la main.
+     */
+    fun syncFrenchEdition(seriesId: Long) {
+        if (!editionsTried.add(seriesId)) return
+        viewModelScope.launch {
+            val data = repo.seriesDao.getOne(seriesId) ?: return@launch
+            val s = data.series
+            val known = data.volumes.map { it.isbn }.filter { BookLookup.isValidIsbn(it) }
+            val map = Editions.frenchVolumes(s.title, s.publisher, known).getOrNull()
+            if (map.isNullOrEmpty()) { editionsTried -= seriesId; return@launch }
+            editions[seriesId] = map
+            val frenchMax = map.keys.max()
+            val info = MangaDb.search(s.title).getOrNull()
+            val fresh = repo.seriesDao.getOne(seriesId)?.series ?: return@launch
+            var updated = fresh
+            if ((fresh.totalVolumes ?: 0) < frenchMax) updated = updated.copy(totalVolumes = frenchMax)
+            // Terminée = finie au Japon ET tous ses tomes déjà parus en France.
+            info?.finished?.let { finishedJp ->
+                val done = finishedJp && (info.volumes == null || frenchMax >= info.volumes)
+                updated = updated.copy(ongoing = !done)
+            }
+            if (updated != fresh) repo.saveSeries(updated)
+            // Tomes ajoutés à la main (sans ISBN) : on leur donne celui de l'édition française.
+            var changed = false
+            data.volumes.filter { it.isbn.isBlank() && map[it.number] != null }.forEach { v ->
+                repo.volumeDao.getOne(v.id)?.let { repo.volumeDao.update(it.copy(isbn = map.getValue(v.number))); changed = true }
+            }
+            if (changed) { coversTried -= seriesId; fetchMissingCovers(seriesId) }
+        }
+    }
+
+    /** Cherche (une fois) la couverture d'un ISBN, pour afficher un tome manquant. */
+    fun requestCover(isbn: String) {
+        if (!coverChecked.add(isbn)) return
+        viewModelScope.launch { BookLookup.findCover(isbn)?.let { coverUrls[isbn] = it } }
     }
 
     fun markReadUpTo(seriesId: Long, upTo: Int) = viewModelScope.launch {

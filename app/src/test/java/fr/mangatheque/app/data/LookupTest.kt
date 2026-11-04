@@ -93,6 +93,19 @@ class LookupTest {
         println("Shield Hero auteurs -> ${sh.authorsText}")
     }
 
+    @Test fun reseau_tomes_parus_en_france() = runBlocking {
+        assumeTrue(System.getenv("NET_TESTS") != null)
+        val t0 = System.currentTimeMillis()
+        val op = Editions.frenchVolumes("One Piece", "Glénat", listOf("9782723488525")).getOrThrow()
+        println("One Piece : ${op.size} tomes, dernier T${op.keys.maxOrNull()} (${System.currentTimeMillis() - t0} ms) ; T1=${op[1]} T4=${op[4]}")
+        assertTrue(op.size >= 100)
+        assertEquals("9782723488525", op[1])
+        val sh = Editions.frenchVolumes("The Rising of the Shield Hero", "Bamboo édition", listOf("9782818940037")).getOrThrow()
+        println("Shield Hero : ${sh.size} tomes, dernier T${sh.keys.maxOrNull()} ; T2=${sh[2]}")
+        assertEquals("9782818940037", sh[2])
+        println("Couverture One Piece T4 -> ${BookLookup.findCover(op[4]!!)}")
+    }
+
     @Test fun reseau_infos_serie_reelles() = runBlocking {
         assumeTrue(System.getenv("NET_TESTS") != null)
         for (title in listOf("One Piece", "Naruto", "Jujutsu Kaisen", "L'Attaque des Titans", "Frieren")) {
