@@ -32,6 +32,12 @@ data class BookInfo(
  *  2. Si rien n'est trouvé : recherche approfondie, plus de sources et plus de patience.
  */
 object BookLookup {
+    /** Résultats déjà trouvés pendant la session (rescanner le même livre = instantané). */
+    private val cache = java.util.concurrent.ConcurrentHashMap<String, BookInfo>()
+
+    /** Google Books refuse souvent les requêtes (quota) : après un refus, on le laisse de côté 15 minutes. */
+    @Volatile private var googleBlockedUntil = 0L
+
     private val quick = OkHttpClient.Builder()
         .connectTimeout(4, TimeUnit.SECONDS)
         .readTimeout(6, TimeUnit.SECONDS)
@@ -49,6 +55,8 @@ object BookLookup {
      */
     suspend fun lookup(isbn: String, onStage: (Int) -> Unit = {}): BookInfo? = withContext(Dispatchers.IO) {
         val clean = normalizeIsbn(isbn)
+        // Déjà cherché pendant cette session : réponse immédiate.
+        cache[clean]?.let { return@withContext it }
         val isbn10 = toIsbn10(clean)
         // Couverture de l'édition française en haute qualité (librairies ePagine), cherchée en parallèle.
         val frenchCover = async { runCatching { epagineCover(clean, quick) }.getOrNull() }
@@ -62,7 +70,7 @@ object BookLookup {
                 async { attempt { bnf(clean, quick) } }
             ).awaitAll()
         }
-        merge(first)?.let { return@withContext it.withCover(frenchCover.await()).withSummary(summary.await()) }
+        merge(first)?.let { return@withContext it.withCover(frenchCover.await()).withSummary(summary.await()).also { r -> cache[clean] = r } }
 
         onStage(2)
         val second = coroutineScope {
@@ -75,7 +83,7 @@ object BookLookup {
                 async { attempt { bnf(clean, patient) } }
             ).awaitAll()
         }
-        merge(second)?.let { return@withContext it.withCover(frenchCover.await() ?: runCatching { epagineCover(clean, patient) }.getOrNull()).withSummary(summary.await()) }
+        merge(second)?.let { return@withContext it.withCover(frenchCover.await() ?: runCatching { epagineCover(clean, patient) }.getOrNull()).withSummary(summary.await()).also { r -> cache[clean] = r } }
         if ((first + second).all { it.isFailure }) throw IOException("Aucune source n'a répondu (pas de réseau ?)")
         null
     }
@@ -218,7 +226,11 @@ object BookLookup {
 
     private fun googleBooks(isbn: String, isbn10: String?, client: OkHttpClient, query: String): BookInfo? {
         val url = "https://www.googleapis.com/books/v1/volumes?q=" + URLEncoder.encode(query, "UTF-8") + "&maxResults=5&country=FR"
-        val body = get(client, url) ?: return null
+        if (System.currentTimeMillis() < googleBlockedUntil) throw IOException("Google Books en pause (quota)")
+        val body = try { get(client, url) } catch (e: IOException) {
+            if (e.message == "HTTP 429") googleBlockedUntil = System.currentTimeMillis() + 15 * 60_000L
+            throw e
+        } ?: return null
         val items = JSONObject(body).optJSONArray("items") ?: return null
         for (i in 0 until items.length()) {
             val info = items.getJSONObject(i).optJSONObject("volumeInfo") ?: continue

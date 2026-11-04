@@ -1,15 +1,23 @@
 package fr.mangatheque.app.ui.components
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -19,33 +27,39 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import fr.mangatheque.app.data.ReadStatus
 import fr.mangatheque.app.ui.theme.extra
 import kotlin.math.PI
@@ -65,12 +79,11 @@ fun StatusDot(s: ReadStatus, modifier: Modifier = Modifier) {
     Box(modifier.size(9.dp).clip(CircleShape).background(statusColor(s)))
 }
 
-// ------------------------------------------------------------------ Effets « manga »
+// ------------------------------------------------------------------ Effets
 
 /**
  * Trame de points (« screentone ») comme sur les planches de manga.
- * [fade] : les points rétrécissent vers le bas (dégradé de trame).
- * [onTop] : la trame est dessinée par-dessus le contenu (ex. sur une image).
+ * [fade] : les points rétrécissent vers le bas. [onTop] : dessinée par-dessus le contenu.
  */
 fun Modifier.halftone(
     color: Color,
@@ -102,24 +115,37 @@ fun Modifier.halftone(
     }
 }
 
-/** Case de planche : trait d'encre épais + ombre décalée. */
+/** Carte moderne : coins arrondis, bordure fine et discrète, ombre douce facultative. */
 @Composable
 fun Modifier.mangaPanel(
-    corner: Dp = 14.dp,
+    corner: Dp = 20.dp,
     background: Color = MaterialTheme.colorScheme.surface,
-    shadow: Dp = 3.dp,
-    border: Dp = 2.dp
+    shadow: Dp = 0.dp,
+    border: Dp = 1.dp
 ): Modifier {
-    val ex = MaterialTheme.extra
     val shape = RoundedCornerShape(corner)
+    val line = MaterialTheme.colorScheme.outlineVariant
     return this
-        .drawBehind {
-            val o = shadow.toPx()
-            if (o > 0f) drawRoundRect(ex.shadow, topLeft = Offset(o, o), size = size, cornerRadius = CornerRadius(corner.toPx()))
-        }
+        .then(if (shadow > 0.dp) Modifier.shadow(shadow, shape, clip = false) else Modifier)
         .clip(shape)
         .background(background)
-        .border(border, ex.outline, shape)
+        .then(if (border > 0.dp) Modifier.border(border, line, shape) else Modifier)
+}
+
+/** Clic avec effet « enfoncé » (léger rétrécissement), et appui long facultatif. */
+@OptIn(ExperimentalFoundationApi::class)
+fun Modifier.bounceClick(onLongClick: (() -> Unit)? = null, onClick: () -> Unit): Modifier = composed {
+    val source = remember { MutableInteractionSource() }
+    val pressed by source.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.95f else 1f, label = "appui")
+    this
+        .graphicsLayer { scaleX = scale; scaleY = scale }
+        .combinedClickable(
+            interactionSource = source,
+            indication = LocalIndication.current,
+            onLongClick = onLongClick,
+            onClick = onClick
+        )
 }
 
 /** Lignes de vitesse rayonnantes, typiques des cases d'action. */
@@ -144,7 +170,7 @@ fun SpeedLines(modifier: Modifier = Modifier, color: Color, count: Int = 56, see
     }
 }
 
-/** Texte façon logo de manga : remplissage coloré + contour d'encre. */
+/** Texte façon logo de manga : remplissage coloré + contour. */
 @Composable
 fun MangaTitle(text: String, style: TextStyle, fill: Color, outline: Color, modifier: Modifier = Modifier, stroke: Dp = 5.dp) {
     val sw = with(LocalDensity.current) { stroke.toPx() }
@@ -154,7 +180,7 @@ fun MangaTitle(text: String, style: TextStyle, fill: Color, outline: Color, modi
     }
 }
 
-/** Titre de page : « Ma Manga » à l'encre + « thèque » en jaune cerné, comme un logo. */
+/** Titre de page : « Ma Manga » en blanc/encre + « thèque » en rouge, comme un logo. */
 @Composable
 fun Brand(first: String, accent: String, modifier: Modifier = Modifier) {
     Row(modifier, verticalAlignment = Alignment.Bottom) {
@@ -170,17 +196,17 @@ fun SpeechBubble(
     background: Color = MaterialTheme.colorScheme.surface,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val outline = MaterialTheme.extra.outline
+    val line = MaterialTheme.colorScheme.outlineVariant
     Column(modifier.fillMaxWidth()) {
         Column(
-            Modifier.fillMaxWidth().mangaPanel(corner = 22.dp, background = background, shadow = 0.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+            Modifier.fillMaxWidth().mangaPanel(corner = 22.dp, background = background).padding(horizontal = 16.dp, vertical = 12.dp),
             content = content
         )
-        Canvas(Modifier.padding(start = 34.dp).offset(y = (-2).dp).size(width = 26.dp, height = 16.dp)) {
+        Canvas(Modifier.padding(start = 34.dp).offset(y = (-1).dp).size(width = 22.dp, height = 12.dp)) {
             val fill = Path().apply { moveTo(0f, 0f); lineTo(size.width, 0f); lineTo(size.width * 0.15f, size.height); close() }
             drawPath(fill, background)
             val edges = Path().apply { moveTo(0f, 0f); lineTo(size.width * 0.15f, size.height); lineTo(size.width, 0f) }
-            drawPath(edges, outline, style = Stroke(width = 2.dp.toPx(), join = StrokeJoin.Round))
+            drawPath(edges, line, style = Stroke(width = 1.dp.toPx(), join = StrokeJoin.Round))
         }
     }
 }
@@ -194,12 +220,15 @@ fun SearchField(value: String, onChange: (String) -> Unit, placeholder: String, 
         onValueChange = onChange,
         placeholder = { Text(placeholder, color = MaterialTheme.colorScheme.onSurfaceVariant) },
         leadingIcon = { Icon(Icons.Rounded.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+        trailingIcon = if (value.isNotEmpty()) {
+            { IconButton(onClick = { onChange("") }) { Icon(Icons.Rounded.Close, "Effacer la recherche") } }
+        } else null,
         singleLine = true,
         shape = RoundedCornerShape(99.dp),
         colors = OutlinedTextFieldDefaults.colors(
             unfocusedContainerColor = MaterialTheme.colorScheme.surface,
             focusedContainerColor = MaterialTheme.colorScheme.surface,
-            unfocusedBorderColor = MaterialTheme.extra.outline,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
             focusedBorderColor = MaterialTheme.colorScheme.primary
         ),
         modifier = modifier.fillMaxWidth()
@@ -207,31 +236,25 @@ fun SearchField(value: String, onChange: (String) -> Unit, placeholder: String, 
 }
 
 /**
- * Bouton de choix en relief (bordure + ombre décalée).
- * Actif : rouge plein, texte blanc, légèrement « enfoncé ». Inactif : blanc, prêt à être appuyé.
+ * Bouton de choix moderne : teinté quand inactif, rouge plein avec ombre douce quand actif.
+ * La couleur change en douceur.
  */
 @Composable
 fun ChoiceButton(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val ex = MaterialTheme.extra
-    val pressed = if (selected) 1.5.dp else 0.dp
+    val cs = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(99.dp)
+    val bg by animateColorAsState(if (selected) cs.primary else cs.surfaceVariant, label = "fond")
+    val fg by animateColorAsState(if (selected) cs.onPrimary else cs.onSurface, label = "texte")
     Box(
         modifier
-            .padding(end = 3.dp, bottom = 3.dp) // place pour l'ombre
-            .offset(x = pressed, y = pressed)
-            .mangaPanel(
-                corner = 99.dp,
-                background = if (selected) ex.pop else MaterialTheme.colorScheme.surface,
-                shadow = if (selected) 1.5.dp else 3.dp,
-                border = if (selected) 2.dp else 1.5.dp
-            )
+            .padding(vertical = 4.dp)
+            .then(if (selected) Modifier.shadow(6.dp, shape, ambientColor = cs.primary, spotColor = cs.primary) else Modifier)
+            .clip(shape)
+            .background(bg)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 9.dp)
     ) {
-        Text(
-            label, style = MaterialTheme.typography.labelLarge, maxLines = 1,
-            color = if (selected) ex.onPop else MaterialTheme.colorScheme.onSurface,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
-        )
+        Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1, color = fg, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
     }
 }
 
@@ -243,14 +266,26 @@ fun Chip(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifi
 /** Groupe de boutons de choix (un seul actif). */
 @Composable
 fun <T> Segmented(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit, modifier: Modifier = Modifier) {
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         options.forEach { (value, label) -> ChoiceButton(label, value == selected, { onSelect(value) }) }
     }
 }
 
 @Composable
-fun StatCard(value: String, label: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurface) {
-    Column(modifier.mangaPanel(corner = 12.dp, shadow = 2.dp, border = 1.5.dp).padding(horizontal = 10.dp, vertical = 9.dp)) {
+fun StatCard(
+    value: String,
+    label: String,
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.onSurface,
+    onClick: (() -> Unit)? = null
+) {
+    Column(
+        modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+    ) {
         Text(value, style = MaterialTheme.typography.headlineMedium, color = color, maxLines = 1)
         Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
@@ -263,57 +298,74 @@ fun Pill(text: String, color: Color? = null, modifier: Modifier = Modifier, onCl
         modifier
             .clip(RoundedCornerShape(99.dp))
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .background(if (color != null) color.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surface)
-            .border(1.5.dp, if (color != null) color.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outline, RoundedCornerShape(99.dp))
-            .padding(horizontal = 10.dp, vertical = 4.dp)
+            .background(color?.copy(alpha = 0.15f) ?: MaterialTheme.colorScheme.surfaceVariant)
+            .padding(horizontal = 12.dp, vertical = 5.dp)
     ) {
         Text(text, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = c, maxLines = 1)
     }
 }
 
-/** Barre de progression : lus (vert) / possédés non lus (gris) / parus non possédés (vide). */
+/** Barre de progression animée : lus (vert) par-dessus possédés (gris), sur le nombre de tomes parus. */
 @Composable
 fun ProgressBar(read: Int, owned: Int, published: Int, modifier: Modifier = Modifier) {
-    val total = maxOf(published, owned, 1)
-    val rest = (owned - read).coerceAtLeast(0)
-    val empty = (total - owned).coerceAtLeast(0)
-    Row(
-        modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(9.dp))
-            .border(1.dp, MaterialTheme.extra.outline.copy(alpha = 0.5f), RoundedCornerShape(9.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-    ) {
-        if (read > 0) Box(Modifier.weight(read.toFloat()).height(6.dp).background(MaterialTheme.extra.ok))
-        if (rest > 0) Box(Modifier.weight(rest.toFloat()).height(6.dp).background(MaterialTheme.extra.muted.copy(alpha = 0.45f)))
-        if (empty > 0) Spacer(Modifier.weight(empty.toFloat()))
+    val total = maxOf(published, owned, 1).toFloat()
+    val ownedF by animateFloatAsState((owned / total).coerceIn(0f, 1f), label = "possédés")
+    val readF by animateFloatAsState((read / total).coerceIn(0f, 1f), label = "lus")
+    val shape = RoundedCornerShape(99.dp)
+    Box(modifier.fillMaxWidth().height(6.dp).clip(shape).background(MaterialTheme.colorScheme.surfaceVariant)) {
+        if (ownedF > 0f) Box(Modifier.fillMaxWidth(ownedF).fillMaxHeight().clip(shape).background(MaterialTheme.extra.muted.copy(alpha = 0.45f)))
+        if (readF > 0f) Box(Modifier.fillMaxWidth(readF).fillMaxHeight().clip(shape).background(MaterialTheme.extra.ok))
     }
 }
 
 @Composable
 fun SectionHeader(title: String, sub: String? = null, modifier: Modifier = Modifier, trailing: (@Composable () -> Unit)? = null) {
     Row(modifier.fillMaxWidth().padding(bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.width(6.dp).height(20.dp).clip(RoundedCornerShape(2.dp)).background(MaterialTheme.colorScheme.primary))
-        Spacer(Modifier.width(8.dp))
+        Box(Modifier.width(4.dp).height(18.dp).clip(RoundedCornerShape(99.dp)).background(MaterialTheme.colorScheme.primary))
+        Spacer(Modifier.width(10.dp))
         Text(title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
         if (trailing != null) trailing()
         else if (sub != null) Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
-/** Panneau = case de planche avec une étiquette jaune en guise de titre (comme un encadré de narration). */
+/** Petite icône dans une pastille ronde teintée (titres de panneaux, états vides). */
 @Composable
-fun Panel(title: String? = null, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    val ex = MaterialTheme.extra
+fun IconBadge(icon: ImageVector, size: Dp = 32.dp, color: Color = MaterialTheme.colorScheme.primary) {
+    Box(Modifier.size(size).clip(CircleShape).background(color.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
+        Icon(icon, null, tint = color, modifier = Modifier.size(size * 0.55f))
+    }
+}
+
+/** Panneau : carte arrondie avec un titre simple (icône + texte), sans bloc de couleur. */
+@Composable
+fun Panel(
+    title: String? = null,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    trailing: (@Composable () -> Unit)? = null,
+    content: @Composable () -> Unit
+) {
     Column(modifier.fillMaxWidth().mangaPanel().padding(16.dp)) {
         if (title != null) {
-            Box(
-                Modifier.clip(RoundedCornerShape(6.dp)).background(ex.pop)
-                    .border(1.5.dp, ex.outline, RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 2.dp)
-            ) {
-                Text(title.uppercase(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ex.onPop, letterSpacing = 1.sp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (icon != null) { IconBadge(icon); Spacer(Modifier.width(10.dp)) }
+                Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                trailing?.invoke()
             }
             Spacer(Modifier.height(12.dp))
         }
         content()
+    }
+}
+
+/** État vide : grande icône douce + phrase courte. */
+@Composable
+fun EmptyState(icon: ImageVector, text: String, modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxWidth().padding(vertical = 36.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        IconBadge(icon, size = 72.dp)
+        Spacer(Modifier.height(12.dp))
+        Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
     }
 }
 

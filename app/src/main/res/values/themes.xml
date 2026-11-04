@@ -6,4 +6,10 @@
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">true</item>
     </style>
+    <!-- Écran de démarrage : fond rouge + logo, puis le thème normal -->
+    <style name="Theme.Mangatheque.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#E0262F</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/Theme.Mangatheque</item>
+    </style>
 </resources>

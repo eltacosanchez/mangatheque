@@ -27,6 +27,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -69,18 +71,21 @@ fun Cover(
     publisher: String,
     seed: Int,
     modifier: Modifier = Modifier,
-    corner: Int = 10,
+    corner: Int = 12,
     badge: String? = null,
-    dimmed: Boolean = false
+    dimmed: Boolean = false,
+    badgeColor: Color? = null
 ) {
     val shape = RoundedCornerShape(corner.dp)
     val ex = MaterialTheme.extra
+    val description = "Couverture de $title" + (number?.let { ", tome $it" } ?: "")
     Box(
         modifier
             .aspectRatio(2f / 3f)
             .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            .border(1.5.dp, ex.outline, shape)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+            .semantics { contentDescription = description }
     ) {
         if (!path.isNullOrBlank()) {
             AsyncImage(
@@ -97,11 +102,10 @@ fun Cover(
             Box(
                 Modifier.align(Alignment.TopEnd).padding(6.dp)
                     .clip(RoundedCornerShape(99.dp))
-                    .background(ex.pop)
-                    .border(1.5.dp, ex.outline, RoundedCornerShape(99.dp))
-                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                    .background(badgeColor ?: ex.pop)
+                    .padding(horizontal = 8.dp, vertical = 3.dp)
             ) {
-                Text(badge, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = ex.onPop)
+                Text(badge, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White)
             }
         }
     }

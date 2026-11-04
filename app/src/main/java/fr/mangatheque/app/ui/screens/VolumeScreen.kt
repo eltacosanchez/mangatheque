@@ -5,6 +5,30 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.material.icons.rounded.AutoStories
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.EditNote
+import androidx.compose.material.icons.rounded.Event
+import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -108,6 +132,19 @@ fun VolumeScreen(
     val s = seriesData ?: return
 
     var note by remember(v.id) { mutableStateOf(v.note) }
+    var noteSaved by remember { mutableStateOf(false) }
+    // Enregistrement de la note après une courte pause de frappe (au lieu de chaque lettre).
+    LaunchedEffect(note) {
+        if (note != v.note) {
+            delay(700); vm.setNoteById(v.id, note)
+            noteSaved = true; delay(1500); noteSaved = false
+        }
+    }
+    LaunchedEffect(v.id) { vm.fetchVolumeSummary(v) }
+    var coverZoom by remember { mutableStateOf(false) }
+    var pickDate by remember { mutableStateOf(false) }
+    val haptic = rememberHaptic(vm)
+    val clipboard = LocalClipboardManager.current
     var menu by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var editInfo by remember { mutableStateOf(false) }
@@ -138,7 +175,7 @@ fun VolumeScreen(
     val next = sorted.getOrNull(idx + 1)
     val unreadBefore = sorted.count { it.number < v.number && it.status != ReadStatus.LU }
     // Tome sans couverture mais avec ISBN : on retente de la trouver.
-    androidx.compose.runtime.LaunchedEffect(v.id, v.coverPath == null) {
+    LaunchedEffect(v.id, v.coverPath == null) {
         if (v.coverPath == null && v.isbn.isNotBlank()) vm.fetchMissingCovers(v.seriesId)
     }
 
@@ -172,7 +209,10 @@ fun VolumeScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Cover(v.coverPath, s.series.title, v.number, s.series.publisher, s.series.colorSeed, Modifier.width(140.dp), corner = 12)
+                    Cover(
+                        v.coverPath, s.series.title, v.number, s.series.publisher, s.series.colorSeed,
+                        Modifier.width(140.dp).clickable(enabled = v.coverPath != null) { coverZoom = true }, corner = 14
+                    )
                     Column(Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.Bottom) {
                             Text("Tome ", style = MaterialTheme.typography.headlineMedium)
@@ -185,7 +225,12 @@ fun VolumeScreen(
                         Pill("Dans ma collection", MaterialTheme.extra.ok)
                         if (v.isbn.isNotBlank()) {
                             Spacer(Modifier.height(8.dp))
-                            Text("ISBN ${v.isbn}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                "ISBN ${v.isbn}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.pointerInput(v.isbn) {
+                                    detectTapGestures(onLongPress = { clipboard.setText(AnnotatedString(v.isbn)); haptic(); vm.toast("ISBN copié") })
+                                }
+                            )
                         }
                         if (v.coverPath == null) {
                             Spacer(Modifier.height(10.dp))
@@ -194,29 +239,56 @@ fun VolumeScreen(
                     }
                 }
 
-                Panel("Ma lecture") {
+                v.summary?.takeIf { it.isNotBlank() }?.let { text ->
+                    Panel("Résumé", icon = Icons.Rounded.Description) {
+                        var open by remember(v.id) { mutableStateOf(false) }
+                        Text(
+                            text, style = MaterialTheme.typography.bodyMedium,
+                            maxLines = if (open) Int.MAX_VALUE else 5, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.animateContentSize().clickable { open = !open }
+                        )
+                        Text(
+                            if (open) "Réduire" else "Lire plus", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.clickable { open = !open }.padding(top = 6.dp)
+                        )
+                    }
+                }
+
+                Panel("Ma lecture", icon = Icons.Rounded.AutoStories) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         ReadStatus.entries.forEach { st ->
                             val sel = v.status == st
                             val c = statusColor(st)
+                            val bg by animateColorAsState(if (sel) c else MaterialTheme.colorScheme.surfaceVariant, label = "statut")
+                            val fg by animateColorAsState(if (sel) Color.White else MaterialTheme.colorScheme.onSurface, label = "statut-texte")
+                            val shape = RoundedCornerShape(16.dp)
                             Column(
                                 Modifier.weight(1f)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(if (sel) c.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surface)
-                                    .border(if (sel) 2.5.dp else 1.5.dp, if (sel) c else MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
-                                    .clickable { vm.setStatus(v, st) }
+                                    .then(if (sel) Modifier.shadow(6.dp, shape, ambientColor = c, spotColor = c) else Modifier)
+                                    .clip(shape)
+                                    .background(bg)
+                                    .clickable { if (!sel) { haptic(); vm.setStatus(v, st) } }
                                     .padding(vertical = 12.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                StatusDot(st)
+                                Icon(statusIcon(st), null, tint = fg, modifier = Modifier.size(22.dp))
                                 Spacer(Modifier.height(4.dp))
-                                Text(st.label, style = MaterialTheme.typography.labelLarge, fontWeight = if (sel) FontWeight.Bold else FontWeight.Medium)
+                                Text(st.label, style = MaterialTheme.typography.labelLarge, color = fg, fontWeight = if (sel) FontWeight.Bold else FontWeight.Medium)
                             }
                         }
                     }
                     if (v.status == ReadStatus.LU && v.readAt != null) {
-                        Spacer(Modifier.height(8.dp))
-                        Text("Lu le ${DateFormat.getDateInstance().format(Date(v.readAt))}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(10.dp))
+                        Row(
+                            Modifier.clip(RoundedCornerShape(99.dp)).clickable { pickDate = true }.padding(horizontal = 4.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Rounded.Event, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Lu le ${DateFormat.getDateInstance().format(Date(v.readAt))}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Modifier", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        }
                     }
                     if (v.status == ReadStatus.LU && unreadBefore > 0) {
                         Spacer(Modifier.height(6.dp))
@@ -229,25 +301,32 @@ fun VolumeScreen(
                     Text("Ma note", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row {
                         (1..5).forEach { i ->
-                            IconButton(onClick = { vm.setRating(v, if (v.rating == i) 0 else i) }, modifier = Modifier.size(42.dp)) {
+                            val on = i <= v.rating
+                            val scale by animateFloatAsState(if (on) 1.15f else 1f, spring(dampingRatio = 0.4f), label = "étoile")
+                            IconButton(onClick = { haptic(); vm.setRating(v, if (v.rating == i) 0 else i) }, modifier = Modifier.size(44.dp)) {
                                 Icon(
-                                    if (i <= v.rating) Icons.Rounded.Star else Icons.Rounded.StarBorder, "$i étoiles",
-                                    tint = if (i <= v.rating) MaterialTheme.extra.pop else MaterialTheme.colorScheme.outline, modifier = Modifier.size(32.dp)
+                                    if (on) Icons.Rounded.Star else Icons.Rounded.StarBorder, "$i étoile${if (i > 1) "s" else ""}",
+                                    tint = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                                    modifier = Modifier.size(32.dp).graphicsLayer { scaleX = scale; scaleY = scale }
                                 )
                             }
                         }
                     }
                 }
 
-                Panel("Ma note perso") {
+                Panel("Ma note perso", icon = Icons.Rounded.EditNote, trailing = {
+                    AnimatedVisibility(noteSaved, enter = fadeIn(), exit = fadeOut()) {
+                        Text("Enregistré ✓", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.extra.ok)
+                    }
+                }) {
                     OutlinedTextField(
-                        note, { note = it; vm.setNote(v, it) },
+                        note, { note = it },
                         placeholder = { Text("Ton avis…") },
-                        minLines = 3, modifier = Modifier.fillMaxWidth()
+                        minLines = 3, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)
                     )
                 }
 
-                Panel("Mes passages préférés") {
+                Panel("Mes passages préférés", icon = Icons.Rounded.FavoriteBorder) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { launchCamera() }) { Icon(Icons.Rounded.AddAPhoto, null); Spacer(Modifier.width(6.dp)); Text("Prendre une page") }
                         OutlinedButton(onClick = { pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) { Icon(Icons.Rounded.PhotoLibrary, "Galerie") }
@@ -261,14 +340,18 @@ fun VolumeScreen(
                                 Column(Modifier.width(130.dp)) {
                                     AsyncImage(
                                         File(m.photoPath), null, contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxWidth().aspectRatio(3f / 4f).clip(RoundedCornerShape(10.dp))
-                                            .border(1.5.dp, MaterialTheme.extra.outline, RoundedCornerShape(10.dp))
+                                        modifier = Modifier.fillMaxWidth().aspectRatio(3f / 4f).clip(RoundedCornerShape(12.dp))
                                             .background(MaterialTheme.colorScheme.surfaceVariant).clickable { zoom = m }
                                     )
                                     Spacer(Modifier.height(4.dp))
                                     if (m.page != null) Text("Page ${m.page}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                                     if (m.caption.isNotBlank()) Text(m.caption, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                    TextButton(onClick = { momentToEdit = m }, contentPadding = PaddingValues(0.dp)) { Text("Modifier", style = MaterialTheme.typography.labelMedium) }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        TextButton(onClick = { momentToEdit = m }, contentPadding = PaddingValues(0.dp)) { Text("Modifier", style = MaterialTheme.typography.labelMedium) }
+                                        IconButton(onClick = { shareMoment(context, m, "${s.series.title} · tome ${v.number}") }, modifier = Modifier.size(36.dp)) {
+                                            Icon(Icons.Rounded.Share, "Partager", modifier = Modifier.size(18.dp))
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -302,7 +385,23 @@ fun VolumeScreen(
             onDelete = { vm.deleteMoment(m); momentToEdit = null }
         )
     }
-    zoom?.let { m -> Lightbox(m.photoPath, "${s.series.title} · tome ${v.number}" + (m.page?.let { " · page $it" } ?: ""), m.caption) { zoom = null } }
+    zoom?.let { m ->
+        Lightbox(
+            m.photoPath, "${s.series.title} · tome ${v.number}" + (m.page?.let { " · page $it" } ?: ""), m.caption,
+            onShare = { shareMoment(context, m, "${s.series.title} · tome ${v.number}") }
+        ) { zoom = null }
+    }
+    if (coverZoom && v.coverPath != null) {
+        Lightbox(v.coverPath, "${s.series.title} · tome ${v.number}", "") { coverZoom = false }
+    }
+    if (pickDate) {
+        val state = rememberDatePickerState(initialSelectedDateMillis = v.readAt ?: System.currentTimeMillis())
+        DatePickerDialog(
+            onDismissRequest = { pickDate = false },
+            confirmButton = { TextButton(onClick = { state.selectedDateMillis?.let { vm.setReadDate(v, it) }; pickDate = false }) { Text("OK") } },
+            dismissButton = { TextButton(onClick = { pickDate = false }) { Text("Annuler") } }
+        ) { DatePicker(state, title = { Text("Date de lecture", Modifier.padding(start = 24.dp, top = 16.dp)) }) }
+    }
 
     if (editInfo) {
         var num by remember { mutableStateOf(v.number.toString()) }
@@ -372,15 +471,42 @@ fun MomentDialog(
 
 /** Plein écran d'une photo de passage. */
 @Composable
-fun Lightbox(path: String, title: String, caption: String, onClose: () -> Unit) {
+fun Lightbox(path: String, title: String, caption: String, onShare: (() -> Unit)? = null, onClose: () -> Unit) {
     androidx.compose.ui.window.Dialog(onDismissRequest = onClose, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
         Box(Modifier.fillMaxSize().background(Color(0xF20A0A0C)).clickable(onClick = onClose), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(16.dp)) {
-                AsyncImage(File(path), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxWidth().weight(1f, fill = false).clip(RoundedCornerShape(8.dp)))
+                AsyncImage(
+                    if (path.startsWith("http")) path else File(path), null, contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxWidth().weight(1f, fill = false).clip(RoundedCornerShape(12.dp))
+                )
                 Spacer(Modifier.height(12.dp))
                 Text(title, color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
                 if (caption.isNotBlank()) Text(caption, color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.bodyMedium)
+                if (onShare != null) {
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = onShare) {
+                        Icon(Icons.Rounded.Share, null, tint = Color.White); Spacer(Modifier.width(6.dp)); Text("Partager", color = Color.White)
+                    }
+                }
             }
         }
+    }
+}
+
+/** Partage la photo d'un passage avec son petit mot (WhatsApp, Messages…). */
+fun shareMoment(context: android.content.Context, m: Moment, title: String) {
+    runCatching {
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", File(m.photoPath))
+        val text = buildString {
+            append(title); m.page?.let { append(" · page $it") }
+            if (m.caption.isNotBlank()) append("\n").append(m.caption)
+        }
+        val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = "image/jpeg"
+            putExtra(android.content.Intent.EXTRA_STREAM, uri)
+            putExtra(android.content.Intent.EXTRA_TEXT, text)
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(android.content.Intent.createChooser(send, "Partager le passage"))
     }
 }

@@ -133,6 +133,32 @@ class Repository(private val context: Context, private val db: AppDatabase) {
         if (prefix != series.isbnPrefix) seriesDao.update(series.copy(isbnPrefix = prefix))
     }
 
+    /** Supprime les images que plus aucune fiche n'utilise (et vieilles d'au moins un jour). */
+    suspend fun cleanupOrphanFiles(): Int = withContext(Dispatchers.IO) {
+        val used = HashSet<String>()
+        seriesDao.listAll().forEach { s ->
+            s.coverPath?.let { used += File(it).name }
+            s.bannerPath?.takeIf { it.isNotBlank() }?.let { used += File(it).name }
+        }
+        volumeDao.listAll().forEach { v -> v.coverPath?.let { used += File(it).name } }
+        momentDao.listAll().forEach { m -> used += File(m.photoPath).name }
+        val dayAgo = System.currentTimeMillis() - 24 * 3600_000L
+        var n = 0
+        File(context.filesDir, "photos").listFiles()?.forEach { f ->
+            if (f.isFile && f.name !in used && f.lastModified() < dayAgo && f.delete()) n++
+        }
+        n
+    }
+
+    /** Place occupée par la collection (base de données + images), en octets. */
+    suspend fun storageUsed(): Long = withContext(Dispatchers.IO) {
+        val photos = File(context.filesDir, "photos").listFiles()?.sumOf { it.length() } ?: 0L
+        val db = context.getDatabasePath("mangatheque.db")
+        photos + db.length() + File(db.path + "-wal").length()
+    }
+
+    suspend fun setReadDate(volume: Volume, date: Long) = volumeDao.update(volume.copy(readAt = date))
+
     private fun deleteFile(path: String?) {
         if (path.isNullOrBlank() || path.startsWith("http")) return
         runCatching { File(path).delete() }

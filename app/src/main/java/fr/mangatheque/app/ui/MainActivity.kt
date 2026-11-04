@@ -2,6 +2,15 @@ package fr.mangatheque.app.ui
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Snackbar
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import fr.mangatheque.app.ui.screens.StatsScreen
 import androidx.activity.SystemBarStyle
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.DisposableEffect
@@ -65,6 +74,7 @@ class MainActivity : ComponentActivity() {
     private val vm: AppViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen() // écran de démarrage avec le logo
         super.onCreate(savedInstanceState)
         setContent {
             val dark = when (vm.themeMode) {
@@ -97,6 +107,7 @@ object Routes {
     const val SERIES_EDIT = "series/{id}/edit"
     const val VOLUME = "volume/{id}"
     const val COVER = "cover/{target}"
+    const val STATS = "stats"
 
     fun scan(mode: String = "add") = "scan?mode=$mode"
     fun series(id: Long) = "series/$id"
@@ -128,7 +139,11 @@ fun MangaNav(vm: AppViewModel) {
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = {
+            SnackbarHost(snackbar) { data ->
+                Snackbar(data, shape = RoundedCornerShape(16.dp), containerColor = MaterialTheme.colorScheme.inverseSurface, contentColor = MaterialTheme.colorScheme.inverseOnSurface)
+            }
+        },
         bottomBar = {
             if (showBar) NavigationBar(
                 containerColor = MaterialTheme.colorScheme.surface,
@@ -161,7 +176,14 @@ fun MangaNav(vm: AppViewModel) {
     ) { padding ->
         // consumeWindowInsets : évite que chaque écran rajoute une 2e marge en haut (espace vide inutile).
         Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
-            NavHost(nav, startDestination = Routes.HOME) {
+            // Transitions douces : fondu entre onglets, glissement léger vers les fiches.
+            NavHost(
+                nav, startDestination = Routes.HOME,
+                enterTransition = { fadeIn(tween(220)) + slideInHorizontally(tween(260)) { it / 12 } },
+                exitTransition = { fadeOut(tween(180)) },
+                popEnterTransition = { fadeIn(tween(220)) },
+                popExitTransition = { fadeOut(tween(180)) + slideOutHorizontally(tween(260)) { it / 12 } }
+            ) {
                 composable(Routes.HOME) {
                     HomeScreen(vm,
                         onOpenSeries = { nav.navigate(Routes.series(it)) },
@@ -175,7 +197,12 @@ fun MangaNav(vm: AppViewModel) {
                                 launchSingleTop = true
                                 restoreState = true
                             }
-                        })
+                        },
+                        onIsbn = { isbn -> vm.startDraft(isbn); nav.navigate(Routes.ADD) },
+                        onStats = { nav.navigate(Routes.STATS) })
+                }
+                composable(Routes.STATS) {
+                    StatsScreen(vm, onBack = { nav.popBackStack() })
                 }
                 composable(Routes.STORE) {
                     StoreScreen(vm, onOpenSeries = { nav.navigate(Routes.series(it)) }, onScan = { nav.navigate(Routes.scan("check")) })
@@ -189,7 +216,7 @@ fun MangaNav(vm: AppViewModel) {
                 composable(Routes.SCAN, arguments = listOf(navArgument("mode") { type = NavType.StringType; defaultValue = "add" })) { entry ->
                     val mode = entry.arguments?.getString("mode") ?: "add"
                     ScanScreen(vm, mode = mode,
-                        onBack = { nav.popBackStack() },
+                        onBack = { vm.resetChain(); nav.popBackStack() },
                         onIsbn = { isbn ->
                             vm.startDraft(isbn)
                             nav.navigate(Routes.ADD) { popUpTo(Routes.SCAN) { inclusive = true } }

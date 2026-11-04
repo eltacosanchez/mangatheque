@@ -81,7 +81,8 @@ enum class SortMode(val label: String) {
     TITRE("A → Z"),
     RECENT("Ajouts récents"),
     PROGRESSION("Progression de lecture"),
-    MANQUANTS("Tomes manquants")
+    MANQUANTS("Tomes manquants"),
+    AUTEUR("Auteur")
 }
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
@@ -115,13 +116,69 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun changeTheme(mode: String) { themeMode = mode; prefs.themeMode = mode }
 
+    /** Collection affichée en liste compacte plutôt qu'en grille. */
+    var listMode by mutableStateOf(prefs.listMode)
+        private set
+    fun toggleListMode() { listMode = !listMode; prefs.listMode = listMode }
+
+    /** Vibrations (scan, appui long, changement de statut). */
+    var hapticsOn by mutableStateOf(prefs.haptics)
+        private set
+    fun changeHaptics(on: Boolean) { hapticsOn = on; prefs.haptics = on }
+
+    var autoBackupOn by mutableStateOf(prefs.autoBackup)
+        private set
+    fun changeAutoBackup(on: Boolean) { autoBackupOn = on; prefs.autoBackup = on }
+
+    var storeOnlyMissing by mutableStateOf(prefs.storeOnlyMissing)
+        private set
+    fun changeStoreOnlyMissing(on: Boolean) { storeOnlyMissing = on; prefs.storeOnlyMissing = on }
+
+    /** Nombre de tomes ajoutés d'affilée avec « Ajouter et scanner le suivant ». */
+    var chainCount by mutableStateOf(0)
+        private set
+    fun resetChain() { chainCount = 0 }
+
     init {
         // Nettoyage unique des données des anciennes versions (faux genres, « - Édition originale »).
         if (prefs.cleanupVersion < 1) viewModelScope.launch {
             repo.cleanupLegacyData()
             prefs.cleanupVersion = 1
         }
+        val now = System.currentTimeMillis()
+        // Sauvegarde automatique hebdomadaire dans Téléchargements/Mangatheque.
+        if (prefs.autoBackup && now - prefs.lastAutoBackup > 7L * 24 * 3600_000) viewModelScope.launch {
+            if (repo.seriesDao.listAll().isNotEmpty()) {
+                Backup.exportToDownloads(getApplication(), repo, "auto").onSuccess { prefs.lastAutoBackup = now }
+            }
+        }
+        // Ménage des images inutilisées, une fois par semaine.
+        if (now - prefs.lastOrphanCleanup > 7L * 24 * 3600_000) viewModelScope.launch {
+            repo.cleanupOrphanFiles()
+            prefs.lastOrphanCleanup = now
+        }
     }
+
+    fun lastAutoBackupLabel(): String =
+        prefs.lastAutoBackup.takeIf { it > 0 }?.let { DateFormat.getDateInstance(DateFormat.LONG).format(Date(it)) } ?: "jamais"
+
+    suspend fun storageUsedMb(): String = "%.1f Mo".format(repo.storageUsed() / 1_048_576.0)
+
+    // ----- Résumé du tome -----
+    private val summaryTried = mutableSetOf<Long>()
+
+    /** Cherche le résumé du dos du livre d'un tome (une fois), et l'enregistre. */
+    fun fetchVolumeSummary(v: Volume) {
+        if (v.summary != null || !BookLookup.isValidIsbn(v.isbn) || !summaryTried.add(v.id)) return
+        viewModelScope.launch {
+            val text = BookLookup.frenchSummary(v.isbn)
+            val fresh = repo.volumeDao.getOne(v.id) ?: return@launch
+            // "" = cherché mais introuvable (on ne recherche plus).
+            if (fresh.summary == null) repo.volumeDao.update(fresh.copy(summary = text ?: ""))
+        }
+    }
+
+    fun setReadDate(v: Volume, date: Long) = viewModelScope.launch { repo.setReadDate(v, date) }
 
     // ----- Ajout de tome -----
     var draft by mutableStateOf<AddDraft?>(null)
@@ -264,7 +321,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Enregistre le brouillon : crée la série si besoin, télécharge couverture et image de fond, ajoute le tome. */
-    fun saveDraft(onDone: (volumeId: Long) -> Unit) {
+    fun saveDraft(chain: Boolean = false, onDone: (volumeId: Long) -> Unit) {
         val d = draft ?: return
         viewModelScope.launch {
             val number = d.number.trim().toIntOrNull() ?: 1
@@ -295,7 +352,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 return@launch
             }
             val cover = d.coverPath ?: d.coverUrl?.let { Images.download(getApplication(), it)?.path }
-            val id = repo.addVolume(Volume(seriesId = seriesId, number = number, isbn = d.isbn, coverPath = cover))
+            val summary = (d.lookup as? LookupState.Found)?.info?.description?.takeIf { it.isNotBlank() }
+            val id = repo.addVolume(Volume(seriesId = seriesId, number = number, isbn = d.isbn, coverPath = cover, summary = summary))
+            if (chain) chainCount++ else chainCount = 0
             draft = null
             toast("Tome $number ajouté à « $title »")
             onDone(id)
@@ -434,6 +493,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun setStatus(v: Volume, s: ReadStatus) = viewModelScope.launch { repo.setStatus(v, s) }
     fun setRating(v: Volume, r: Int) = viewModelScope.launch { repo.updateVolume(v.copy(rating = r)) }
     fun setNote(v: Volume, note: String) = viewModelScope.launch { repo.updateVolume(v.copy(note = note)) }
+    /** Relit le tome avant d'écrire la note : ne réécrase pas un statut changé entre-temps. */
+    fun setNoteById(id: Long, note: String) = viewModelScope.launch { repo.volumeDao.getOne(id)?.let { repo.volumeDao.update(it.copy(note = note)) } }
     fun updateVolume(v: Volume) = viewModelScope.launch { repo.updateVolume(v); toast("Tome mis à jour") }
     fun deleteVolume(v: Volume, onDone: () -> Unit) = viewModelScope.launch { repo.deleteVolume(v); toast("Tome supprimé"); onDone() }
 
@@ -478,6 +539,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             .onFailure { toast("Export impossible : ${it.message}") }
     }
     fun importFrom(uri: Uri) = viewModelScope.launch {
+        // Sécurité : la collection actuelle est sauvegardée avant d'être remplacée.
+        if (repo.seriesDao.listAll().isNotEmpty()) Backup.exportToDownloads(getApplication(), repo, "avant_restauration", keep = 2)
         Backup.import(getApplication(), repo, uri)
             .onSuccess { toast("Collection restaurée ($it séries)") }
             .onFailure { toast("Import impossible : ${it.message}") }

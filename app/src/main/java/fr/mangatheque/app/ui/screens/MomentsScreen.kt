@@ -36,6 +36,9 @@ import coil.compose.AsyncImage
 import fr.mangatheque.app.data.MomentWithContext
 import fr.mangatheque.app.ui.AppViewModel
 import fr.mangatheque.app.ui.components.Brand
+import fr.mangatheque.app.ui.components.EmptyState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.PhotoLibrary
 import fr.mangatheque.app.ui.components.plural
 import java.io.File
 
@@ -66,18 +69,14 @@ fun MomentsScreen(vm: AppViewModel, onOpenVolume: (Long) -> Unit) {
         }
         if (all.isEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) {
-                Text(
-                    "Aucun passage. Ajoute-en depuis la fiche d'un tome.",
-                    textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp)
-                )
+                EmptyState(Icons.Rounded.PhotoLibrary, "Aucun passage.\nAjoute-en depuis la fiche d'un tome.")
             }
         }
         items(all, key = { it.moment.id }) { m ->
             Column {
                 AsyncImage(
                     File(m.moment.photoPath), null, contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxWidth().aspectRatio(3f / 4f).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceVariant).clickable { zoom = m }
+                    modifier = Modifier.fillMaxWidth().aspectRatio(3f / 4f).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceVariant).clickable { zoom = m }
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
@@ -91,6 +90,10 @@ fun MomentsScreen(vm: AppViewModel, onOpenVolume: (Long) -> Unit) {
     }
 
     zoom?.let { m ->
-        Lightbox(m.moment.photoPath, "${m.seriesTitle} · tome ${m.volumeNumber}" + (m.moment.page?.let { " · page $it" } ?: ""), m.moment.caption) { zoom = null }
+        val context = androidx.compose.ui.platform.LocalContext.current
+        Lightbox(
+            m.moment.photoPath, "${m.seriesTitle} · tome ${m.volumeNumber}" + (m.moment.page?.let { " · page $it" } ?: ""), m.moment.caption,
+            onShare = { shareMoment(context, m.moment, "${m.seriesTitle} · tome ${m.volumeNumber}") }
+        ) { zoom = null }
     }
 }

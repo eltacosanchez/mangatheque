@@ -75,6 +75,8 @@ data class Volume(
     val rating: Int = 0,
     val note: String = "",
     val readAt: Long? = null,
+    /** Résumé du dos du livre (null = pas encore cherché, "" = introuvable). */
+    val summary: String? = null,
     val addedAt: Long = System.currentTimeMillis()
 ) {
     val status: ReadStatus get() = ReadStatus.from(readStatus)

@@ -48,6 +48,33 @@ class Prefs(context: Context) {
         get() = sp.getInt("cleanupVersion", 0)
         set(v) = sp.edit().putInt("cleanupVersion", v).apply()
 
+    /** Collection en liste compacte plutôt qu'en grille. */
+    var listMode: Boolean
+        get() = sp.getBoolean("listMode", false)
+        set(v) = sp.edit().putBoolean("listMode", v).apply()
+
+    var haptics: Boolean
+        get() = sp.getBoolean("haptics", true)
+        set(v) = sp.edit().putBoolean("haptics", v).apply()
+
+    /** Sauvegarde automatique chaque semaine dans Téléchargements/Mangatheque. */
+    var autoBackup: Boolean
+        get() = sp.getBoolean("autoBackup", true)
+        set(v) = sp.edit().putBoolean("autoBackup", v).apply()
+
+    var lastAutoBackup: Long
+        get() = sp.getLong("lastAutoBackup", 0L)
+        set(v) = sp.edit().putLong("lastAutoBackup", v).apply()
+
+    var lastOrphanCleanup: Long
+        get() = sp.getLong("lastOrphanCleanup", 0L)
+        set(v) = sp.edit().putLong("lastOrphanCleanup", v).apply()
+
+    /** Magasin : n'afficher que les séries où il manque des tomes. */
+    var storeOnlyMissing: Boolean
+        get() = sp.getBoolean("storeOnlyMissing", false)
+        set(v) = sp.edit().putBoolean("storeOnlyMissing", v).apply()
+
     var sortMode: String
         get() = sp.getString("sortMode", "") ?: ""
         set(v) = sp.edit().putString("sortMode", v).apply()

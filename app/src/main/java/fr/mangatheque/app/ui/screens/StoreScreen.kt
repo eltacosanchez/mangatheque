@@ -1,6 +1,17 @@
 package fr.mangatheque.app.ui.screens
 
 import androidx.compose.foundation.border
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.ShoppingCart
+import androidx.compose.material.icons.rounded.Storefront
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
+import fr.mangatheque.app.ui.components.EmptyState
+import fr.mangatheque.app.ui.components.Panel
+import fr.mangatheque.app.ui.components.Pill
+import fr.mangatheque.app.ui.components.Segmented
+import fr.mangatheque.app.ui.components.bounceClick
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -55,10 +66,15 @@ fun StoreScreen(vm: AppViewModel, onOpenSeries: (Long) -> Unit, onScan: () -> Un
     }
     val all by vm.series.collectAsStateWithLifecycle()
     val q = Repository.normalize(vm.storeQuery)
-    val list = remember(all, q) {
+    val list = remember(all, q, vm.storeOnlyMissing) {
         all.filter { q.isBlank() || Repository.normalize("${it.series.title} ${it.series.author}").contains(q) }
+            .filter { !vm.storeOnlyMissing || it.missingNumbers.isNotEmpty() }
             .sortedWith(compareByDescending<SeriesWithVolumes> { it.missingNumbers.isNotEmpty() || it.series.ongoing }.thenBy { it.series.title.lowercase() })
     }
+    // Liste de courses : tous les tomes manquants, série par série.
+    val toBuy = remember(all) { all.filter { it.missingNumbers.isNotEmpty() }.sortedBy { it.series.title.lowercase() } }
+    val toBuyCount = toBuy.sumOf { it.missingNumbers.size }
+    val context = LocalContext.current
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
@@ -76,22 +92,33 @@ fun StoreScreen(vm: AppViewModel, onOpenSeries: (Long) -> Unit, onScan: () -> Un
                     )
                     Spacer(Modifier.height(12.dp))
                     SearchField(vm.storeQuery, { vm.storeQuery = it }, "Titre du manga")
-                    Spacer(Modifier.height(6.dp))
+                    if (toBuyCount > 0 && vm.storeQuery.isBlank()) {
+                        Spacer(Modifier.height(12.dp))
+                        Panel("À acheter · $toBuyCount tome${if (toBuyCount > 1) "s" else ""}", icon = Icons.Rounded.ShoppingCart, trailing = {
+                            IconButton(onClick = { shareShoppingList(context, toBuy) }) { Icon(Icons.Rounded.Share, "Partager la liste") }
+                        }) {
+                            toBuy.take(6).forEach { s ->
+                                Row(Modifier.fillMaxWidth().clickable { onOpenSeries(s.series.id) }.padding(vertical = 4.dp)) {
+                                    Text(s.series.title, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("T" + ranges(s.missingNumbers), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                            if (toBuy.size > 6) Text("+ ${toBuy.size - 6} autres séries", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    Segmented(listOf(false to "Toutes", true to "À compléter"), vm.storeOnlyMissing, { vm.changeStoreOnlyMissing(it) }, Modifier.padding(top = 8.dp))
                 }
             }
             if (list.isEmpty()) {
                 item {
-                    Text(
-                        if (all.isEmpty()) "Collection vide." else "Pas dans ta collection.",
-                        textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 30.dp)
-                    )
+                    EmptyState(Icons.Rounded.Storefront, if (all.isEmpty()) "Collection vide." else if (vm.storeOnlyMissing && q.isBlank()) "Rien ne manque !" else "Pas dans ta collection.")
                 }
             }
             items(list, key = { it.series.id }) { s ->
                 val missing = s.missingNumbers
                 Row(
-                    Modifier.fillMaxWidth().mangaPanel().clickable { onOpenSeries(s.series.id) }.padding(12.dp),
+                    Modifier.fillMaxWidth().mangaPanel().bounceClick { onOpenSeries(s.series.id) }.padding(12.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Cover(s.displayCover, s.series.title, s.sortedVolumes.lastOrNull()?.number, s.series.publisher, s.series.colorSeed, Modifier.width(56.dp), corner = 6)
@@ -112,19 +139,14 @@ fun StoreScreen(vm: AppViewModel, onOpenSeries: (Long) -> Unit, onScan: () -> Un
                         }
                         Spacer(Modifier.height(6.dp))
                         val next = missing.firstOrNull()
-                        Box(
-                            Modifier.border(1.5.dp, MaterialTheme.extra.outline, RoundedCornerShape(6.dp))
-                                .padding(horizontal = 8.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                when {
-                                    next != null -> "👉 Prochain : T$next"
-                                    s.series.ongoing -> "Prochain : T${s.published + 1}"
-                                    else -> "Série terminée"
-                                },
-                                style = MaterialTheme.typography.labelLarge
-                            )
-                        }
+                        Pill(
+                            when {
+                                next != null -> "Prochain : T$next"
+                                s.series.ongoing -> "Prochain : T${s.published + 1}"
+                                else -> "Série terminée"
+                            },
+                            if (next != null) MaterialTheme.colorScheme.primary else null
+                        )
                     }
                 }
             }
@@ -135,7 +157,17 @@ fun StoreScreen(vm: AppViewModel, onOpenSeries: (Long) -> Unit, onScan: () -> Un
             contentColor = MaterialTheme.colorScheme.onPrimary,
             icon = { Icon(Icons.Rounded.QrCodeScanner, null) },
             text = { Text("Je l'ai déjà ?") },
-            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp).border(2.dp, MaterialTheme.extra.outline, RoundedCornerShape(16.dp))
+            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)
         )
     }
+}
+
+/** Partage la liste des tomes à acheter (SMS, WhatsApp, notes…). */
+private fun shareShoppingList(context: android.content.Context, toBuy: List<SeriesWithVolumes>) {
+    val text = buildString {
+        append("📚 Mangas à acheter\n")
+        toBuy.forEach { append("• ${it.series.title} : tome${if (it.missingNumbers.size > 1) "s" else ""} ${ranges(it.missingNumbers)}\n") }
+    }
+    val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(android.content.Intent.EXTRA_TEXT, text) }
+    runCatching { context.startActivity(android.content.Intent.createChooser(send, "Partager la liste")) }
 }

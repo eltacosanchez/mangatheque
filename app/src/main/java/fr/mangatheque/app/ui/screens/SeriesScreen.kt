@@ -5,6 +5,10 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.animation.animateContentSize
+import androidx.compose.material3.FloatingActionButton
+import fr.mangatheque.app.ui.components.ProgressBar
+import fr.mangatheque.app.ui.components.bounceClick
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -97,7 +101,8 @@ fun SeriesScreen(
     var menu by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var volumeToDelete by remember { mutableStateOf<Volume?>(null) }
-    val haptic = LocalHapticFeedback.current
+    var volumeSheet by remember { mutableStateOf<Volume?>(null) }
+    val haptic = rememberHaptic(vm)
     // Couvertures des tomes enregistrés sans image : on les recherche une fois.
     LaunchedEffect(id) { vm.fetchMissingCovers(id) }
     var confirmAllRead by remember { mutableStateOf(false) }
@@ -117,6 +122,11 @@ fun SeriesScreen(
         Backdrop(data.backdrop, data.series.colorSeed)
         Scaffold(
             containerColor = Color.Transparent,
+            floatingActionButton = {
+                FloatingActionButton(onClick = onScan, containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) {
+                    Icon(Icons.Rounded.QrCodeScanner, "Scanner un tome")
+                }
+            },
             topBar = {
                 TopAppBar(
                     title = {},
@@ -182,8 +192,21 @@ fun SeriesScreen(
                             Text(
                                 data.series.synopsis, style = MaterialTheme.typography.bodyMedium,
                                 maxLines = if (expanded) Int.MAX_VALUE else 4, overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.clickable { expanded = !expanded }
+                                modifier = Modifier.animateContentSize().clickable { expanded = !expanded }
                             )
+                            Text(
+                                if (expanded) "Réduire" else "Lire plus", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.clickable { expanded = !expanded }.padding(vertical = 4.dp)
+                            )
+                        }
+                        if (data.volumes.isNotEmpty()) {
+                            Spacer(Modifier.height(14.dp))
+                            val pct = data.readCount * 100 / data.volumes.size
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("$pct % lu", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.extra.ok)
+                                Spacer(Modifier.width(10.dp))
+                                ProgressBar(data.readCount, data.volumes.size, data.published, Modifier.weight(1f))
+                            }
                         }
                         Spacer(Modifier.height(16.dp))
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -195,7 +218,7 @@ fun SeriesScreen(
                         Spacer(Modifier.height(20.dp))
                         SectionHeader("Les tomes")
                         Text(
-                            "Appui long pour supprimer",
+                            "Appui long sur un tome : statut ou suppression",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(bottom = 4.dp)
                         )
@@ -206,10 +229,7 @@ fun SeriesScreen(
                 items((1..max).toList(), key = { it }) { n ->
                     val v = data.volumes.firstOrNull { it.number == n }
                     if (v != null) {
-                        Column(Modifier.combinedClickable(
-                            onClick = { onOpenVolume(v.id) },
-                            onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); volumeToDelete = v }
-                        )) {
+                        Column(Modifier.bounceClick(onLongClick = { haptic(); volumeSheet = v }) { onOpenVolume(v.id) }) {
                             Cover(v.coverPath, data.series.title, n, data.series.publisher, data.series.colorSeed)
                             Spacer(Modifier.height(6.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -246,6 +266,14 @@ fun SeriesScreen(
         }
     }
 
+    volumeSheet?.let { v ->
+        VolumeActionsSheet(
+            data, v, onDismiss = { volumeSheet = null },
+            onStatus = { vm.setStatus(v, it) },
+            onOpen = { onOpenVolume(v.id) },
+            onDelete = { volumeToDelete = v }
+        )
+    }
     volumeToDelete?.let { v ->
         AlertDialog(
             onDismissRequest = { volumeToDelete = null },

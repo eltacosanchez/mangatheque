@@ -160,7 +160,7 @@ fun ScanScreen(vm: AppViewModel, mode: String, onBack: () -> Unit, onIsbn: (Stri
 
     fun accept(code: String) {
         accepted = code
-        vibrate(context)
+        if (vm.hapticsOn) vibrate(context)
         if (mode == "add") onIsbnLatest(code)
     }
 
@@ -377,6 +377,13 @@ fun ScanScreen(vm: AppViewModel, mode: String, onBack: () -> Unit, onIsbn: (Stri
                 ) { Text(if (zoom2x) "×2" else "×1", color = Color.White, fontWeight = FontWeight.Bold) }
                 IconButton(onClick = { torch = !torch; camera?.cameraControl?.enableTorch(torch) }) { Icon(if (torch) Icons.Rounded.FlashOn else Icons.Rounded.FlashOff, "Lampe", tint = Color.White) }
                 IconButton(onClick = { manual = true }) { Icon(Icons.Rounded.Keyboard, "Saisir l'ISBN", tint = Color.White) }
+            }
+        }
+
+        // Scan à la chaîne : nombre de tomes déjà ajoutés d'affilée
+        if (vm.chainCount > 0 && mode == "add") {
+            Box(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 64.dp)) {
+                Pill("✓ ${vm.chainCount} ajouté${if (vm.chainCount > 1) "s" else ""}", MaterialTheme.extra.ok)
             }
         }
 

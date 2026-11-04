@@ -1,6 +1,14 @@
 package fr.mangatheque.app.data
 
+import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -18,6 +26,38 @@ import java.util.zip.ZipOutputStream
  */
 object Backup {
     const val FORMAT_VERSION = 1
+
+    /**
+     * Sauvegarde dans Téléchargements/Mangatheque (Android 10 et plus), visible avec l'appli Fichiers.
+     * On garde les [keep] plus récentes du même type ([kind] : "auto", "avant_restauration").
+     */
+    suspend fun exportToDownloads(context: Context, repo: Repository, kind: String, keep: Int = 3): Result<String> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) error("Android 10 minimum")
+                val resolver = context.contentResolver
+                val name = "mangatheque_${kind}_" + SimpleDateFormat("yyyy-MM-dd_HHmm", Locale.FRANCE).format(Date()) + ".zip"
+                val values = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, name)
+                    put(MediaStore.Downloads.MIME_TYPE, "application/zip")
+                    put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Mangatheque")
+                }
+                val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: error("Création du fichier impossible")
+                export(context, repo, uri).getOrThrow()
+                // Ménage : seules les plus récentes sont gardées.
+                resolver.query(
+                    MediaStore.Downloads.EXTERNAL_CONTENT_URI, arrayOf(MediaStore.Downloads._ID),
+                    "${MediaStore.Downloads.DISPLAY_NAME} LIKE ?", arrayOf("mangatheque_${kind}_%"),
+                    "${MediaStore.Downloads.DATE_ADDED} DESC"
+                )?.use { c ->
+                    var i = 0
+                    while (c.moveToNext()) {
+                        if (i++ >= keep) resolver.delete(ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, c.getLong(0)), null, null)
+                    }
+                }
+                name
+            }
+        }
 
     suspend fun export(context: Context, repo: Repository, target: Uri): Result<Int> = withContext(Dispatchers.IO) {
         runCatching {
@@ -47,6 +87,7 @@ object Backup {
                             put("title", v.title); put("coverPath", fileName(v.coverPath, files) ?: JSONObject.NULL)
                             put("readStatus", v.readStatus); put("rating", v.rating); put("note", v.note)
                             put("readAt", v.readAt ?: JSONObject.NULL); put("addedAt", v.addedAt)
+                            put("summary", v.summary ?: JSONObject.NULL)
                         })
                     }
                 })
@@ -139,6 +180,7 @@ object Backup {
                         coverPath = path(o.opt("coverPath")), readStatus = o.optString("readStatus", ReadStatus.A_LIRE.name),
                         rating = o.optInt("rating"), note = o.optString("note"),
                         readAt = if (o.isNull("readAt")) null else o.optLong("readAt"),
+                        summary = if (!o.has("summary") || o.isNull("summary")) null else o.optString("summary"),
                         addedAt = o.optLong("addedAt", System.currentTimeMillis())
                     )
                 )

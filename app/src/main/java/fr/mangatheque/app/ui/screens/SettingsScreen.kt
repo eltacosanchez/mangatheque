@@ -16,6 +16,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.CloudUpload
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.SystemUpdate
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material.icons.rounded.Upload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -70,19 +76,32 @@ fun SettingsScreen(vm: AppViewModel) {
     ) {
         Brand("Ré", "glages", Modifier.padding(top = 12.dp))
 
-        Panel("Apparence") {
+        Panel("Apparence", icon = Icons.Rounded.Palette) {
             Text("Fond de l'application", style = MaterialTheme.typography.bodyMedium)
-            Spacer(Modifier.height(8.dp))
-            Segmented(
-                listOf("auto" to "Comme le téléphone", "clair" to "Blanc", "sombre" to "Sombre"),
-                vm.themeMode, { vm.changeTheme(it) }
-            )
+            Spacer(Modifier.height(4.dp))
+            Row(Modifier.horizontalScroll(rememberScrollState())) {
+                Segmented(
+                    listOf("auto" to "Comme le téléphone", "clair" to "Blanc", "sombre" to "Sombre"),
+                    vm.themeMode, { vm.changeTheme(it) }
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {
+                Text("Vibrations", modifier = Modifier.weight(1f))
+                Switch(checked = vm.hapticsOn, onCheckedChange = { vm.changeHaptics(it) })
+            }
         }
 
-        Panel("Sauvegarde") {
+        Panel("Sauvegarde", icon = Icons.Rounded.CloudUpload) {
             Text("Un fichier .zip avec fiches et photos.", style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(6.dp))
             Text("Dernière sauvegarde : ${vm.lastExportLabel()}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text("Sauvegarde auto chaque semaine")
+                    Text("Téléchargements › Mangatheque · dernière : ${vm.lastAutoBackupLabel()}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(checked = vm.autoBackupOn, onCheckedChange = { vm.changeAutoBackup(it) })
+            }
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = {
@@ -93,7 +112,7 @@ fun SettingsScreen(vm: AppViewModel) {
             }
         }
 
-        Panel("Mises à jour (GitHub Releases)") {
+        Panel("Mises à jour", icon = Icons.Rounded.SystemUpdate) {
             Text("Version installée : ${Updater.currentVersion()}", style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(8.dp))
             OutlinedTextField(
@@ -135,8 +154,18 @@ fun SettingsScreen(vm: AppViewModel) {
             }
         }
 
-        Panel("À propos") {
+        Panel("À propos", icon = Icons.Rounded.Info) {
+            var storage by remember { mutableStateOf("…") }
+            LaunchedEffect(Unit) { storage = vm.storageUsedMb() }
+            Text("Ma Mangathèque ${Updater.currentVersion()}", style = MaterialTheme.typography.titleSmall)
+            Text("Espace utilisé : $storage", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(6.dp))
             Text("Données sur le téléphone uniquement.\nSources : BnF, Google Books, Open Library, AniList, ePagine, Place des Libraires.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (vm.prefs.updateRepo.isNotBlank()) {
+                TextButton(onClick = {
+                    runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/${vm.prefs.updateRepo}"))) }
+                }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("Voir le projet sur GitHub") }
+            }
         }
     }
 

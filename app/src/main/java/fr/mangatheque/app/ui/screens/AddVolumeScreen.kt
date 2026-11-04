@@ -23,6 +23,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.CollectionsBookmark
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material.icons.rounded.QrCodeScanner
@@ -165,7 +167,7 @@ fun AddVolumeScreen(
             }
 
             // ----- Série -----
-            Panel("Série") {
+            Panel("Série", icon = Icons.Rounded.CollectionsBookmark) {
                 Box {
                     OutlinedButton(onClick = { seriesMenu = true }, modifier = Modifier.fillMaxWidth()) {
                         Text(if (d.seriesId == null) "Nouvelle série" else "Série existante : ${d.seriesTitle}", maxLines = 1)
@@ -190,7 +192,7 @@ fun AddVolumeScreen(
                 )
             }
 
-            Panel("Infos (modifiables)") {
+            Panel("Infos", icon = Icons.Rounded.Info) {
                 if (d.seriesInfoFound) {
                     Text("✨ Complété avec AniList", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.extra.ok)
                     Spacer(Modifier.height(8.dp))
@@ -221,7 +223,7 @@ fun AddVolumeScreen(
                     enabled = canSave, modifier = Modifier.fillMaxWidth().height(52.dp)
                 ) { Text(if (saving) "Enregistrement…" else "Ajouter à ma collection") }
                 OutlinedButton(
-                    onClick = { saving = true; vm.saveDraft { saving = false; onSavedScanNext() } },
+                    onClick = { saving = true; vm.saveDraft(chain = true) { saving = false; onSavedScanNext() } },
                     enabled = canSave, modifier = Modifier.fillMaxWidth().height(48.dp)
                 ) { Icon(Icons.Rounded.QrCodeScanner, null); Spacer(Modifier.width(6.dp)); Text("Ajouter et scanner le suivant") }
                 TextButton(onClick = onScanAgain, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Rescanner") }
