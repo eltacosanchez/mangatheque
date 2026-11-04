@@ -55,6 +55,12 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -183,9 +189,24 @@ fun MangaTitle(text: String, style: TextStyle, fill: Color, outline: Color, modi
 /** Titre de page : « Ma Manga » en blanc/encre + « thèque » en rouge, comme un logo. */
 @Composable
 fun Brand(first: String, accent: String, modifier: Modifier = Modifier) {
-    Row(modifier, verticalAlignment = Alignment.Bottom) {
-        Text(first, style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.onBackground)
-        MangaTitle(accent, MaterialTheme.typography.displayMedium, fill = MaterialTheme.extra.pop, outline = MaterialTheme.extra.shadow)
+    // Toujours sur une seule ligne : la taille diminue d'elle-même s'il manque de place.
+    val base = MaterialTheme.typography.displayMedium
+    val fg = MaterialTheme.colorScheme.onBackground
+    val pop = MaterialTheme.extra.pop
+    val outline = MaterialTheme.extra.shadow
+    val sw = with(LocalDensity.current) { 4.dp.toPx() }
+    val auto = TextAutoSize.StepBased(minFontSize = 18.sp, maxFontSize = base.fontSize, stepSize = 1.sp)
+    val fill = buildAnnotatedString {
+        withStyle(SpanStyle(color = fg)) { append(first) }
+        withStyle(SpanStyle(color = pop)) { append(accent) }
+    }
+    val stroke = buildAnnotatedString {
+        withStyle(SpanStyle(color = Color.Transparent)) { append(first) }
+        withStyle(SpanStyle(color = outline)) { append(accent) }
+    }
+    Box(modifier) {
+        BasicText(stroke, style = base.copy(drawStyle = Stroke(width = sw, join = StrokeJoin.Round)), maxLines = 1, softWrap = false, autoSize = auto)
+        BasicText(fill, style = base, maxLines = 1, softWrap = false, autoSize = auto)
     }
 }
 

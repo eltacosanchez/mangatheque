@@ -27,6 +27,7 @@ import androidx.compose.material.icons.automirrored.rounded.ViewList
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.DocumentScanner
 import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material.icons.rounded.QrCodeScanner
@@ -87,7 +88,8 @@ fun HomeScreen(
     onNewSeries: () -> Unit,
     onOpenSettings: () -> Unit,
     onIsbn: (String) -> Unit,
-    onStats: () -> Unit
+    onStats: () -> Unit,
+    onBatch: () -> Unit
 ) {
     val all by vm.series.collectAsStateWithLifecycle()
     val genres = remember(all) { all.flatMap { it.series.genreList }.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.map { it.key } }
@@ -158,6 +160,7 @@ fun HomeScreen(
                                 IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.Add, "Ajouter") }
                                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                                     DropdownMenuItem(text = { Text("Scanner") }, leadingIcon = { Icon(Icons.Rounded.QrCodeScanner, null) }, onClick = { menu = false; onScan() })
+                                    DropdownMenuItem(text = { Text("Scan multiple") }, leadingIcon = { Icon(Icons.Rounded.DocumentScanner, null) }, onClick = { menu = false; onBatch() })
                                     DropdownMenuItem(text = { Text("Taper un ISBN") }, leadingIcon = { Icon(Icons.Rounded.Keyboard, null) }, onClick = { menu = false; isbnDialog = true })
                                     DropdownMenuItem(text = { Text("Tome à la main") }, leadingIcon = { Icon(Icons.Rounded.Edit, null) }, onClick = { menu = false; onAddManual() })
                                     DropdownMenuItem(text = { Text("Série vide") }, leadingIcon = { Icon(Icons.Rounded.Add, null) }, onClick = { menu = false; onNewSeries() })

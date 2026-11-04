@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Snackbar
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import fr.mangatheque.app.ui.screens.StatsScreen
+import fr.mangatheque.app.ui.screens.BatchScanScreen
 import androidx.activity.SystemBarStyle
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.DisposableEffect
@@ -108,6 +109,7 @@ object Routes {
     const val VOLUME = "volume/{id}"
     const val COVER = "cover/{target}"
     const val STATS = "stats"
+    const val BATCH = "batch"
 
     fun scan(mode: String = "add") = "scan?mode=$mode"
     fun series(id: Long) = "series/$id"
@@ -199,7 +201,15 @@ fun MangaNav(vm: AppViewModel) {
                             }
                         },
                         onIsbn = { isbn -> vm.startDraft(isbn); nav.navigate(Routes.ADD) },
-                        onStats = { nav.navigate(Routes.STATS) })
+                        onStats = { nav.navigate(Routes.STATS) },
+                        onBatch = { vm.batchReset(); nav.navigate(Routes.BATCH) })
+                }
+                composable(Routes.BATCH) {
+                    BatchScanScreen(vm,
+                        onClose = { nav.popBackStack() },
+                        onOpenVolume = { nav.navigate(Routes.volume(it)) },
+                        onComplete = { isbn -> vm.startDraft(isbn); nav.navigate(Routes.ADD) },
+                        onCollection = { vm.batchReset(); nav.popBackStack(Routes.HOME, inclusive = false) })
                 }
                 composable(Routes.STATS) {
                     StatsScreen(vm, onBack = { nav.popBackStack() })

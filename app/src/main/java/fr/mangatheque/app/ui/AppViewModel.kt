@@ -34,6 +34,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
+import androidx.compose.runtime.mutableStateListOf
 import java.io.File
 import java.io.IOException
 import java.text.DateFormat
@@ -361,6 +366,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val summary = (d.lookup as? LookupState.Found)?.info?.description?.takeIf { it.isNotBlank() }
             val id = repo.addVolume(Volume(seriesId = seriesId, number = number, isbn = d.isbn, coverPath = cover, summary = summary))
             if (chain) chainCount++ else chainCount = 0
+            // Livre « introuvable » du scan multiple complété à la main : on le marque comme ajouté.
+            batch.indexOfFirst { it.isbn == d.isbn && d.isbn.isNotBlank() }.takeIf { it >= 0 }?.let { i ->
+                batch[i] = batch[i].copy(state = BatchState.Added(id, title, number, cover, needsCheck = false))
+            }
             draft = null
             toast("Tome $number ajouté à « $title »")
             onDone(id)
@@ -396,6 +405,72 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun applyCoverUri(target: String, uri: Uri) = viewModelScope.launch {
         val f = Images.importUri(getApplication(), uri, "cover")
         if (f == null) toast("Image illisible") else applyCover(target, f)
+    }
+
+    // ----- Scan multiple : file de recherche en arrière-plan -----
+    /** Livres scannés pendant la session de scan multiple, dans l'ordre (le plus récent en premier). */
+    val batch = mutableStateListOf<BatchItem>()
+    private val batchSlots = Semaphore(3)   // 3 recherches en même temps
+    private val batchDb = Mutex()           // une seule écriture à la fois (évite de créer 2 fois la même série)
+
+    fun batchReset() { if (batch.none { it.state is BatchState.Searching }) batch.clear() }
+
+    /** Ajoute un ISBN à la file ; retourne false s'il a déjà été scanné dans cette session. */
+    fun batchAdd(isbn: String): Boolean {
+        val clean = BookLookup.normalizeIsbn(isbn)
+        if (batch.any { it.isbn == clean }) return false
+        batch.add(0, BatchItem(clean, BatchState.Searching))
+        launchBatch(clean)
+        return true
+    }
+
+    fun batchRetry(isbn: String) {
+        val i = batch.indexOfFirst { it.isbn == isbn }.takeIf { it >= 0 } ?: return
+        batch[i] = batch[i].copy(state = BatchState.Searching)
+        launchBatch(isbn)
+    }
+
+    private fun launchBatch(isbn: String) = viewModelScope.launch {
+        val state = batchSlots.withPermit { runCatching { autoAdd(isbn) }.getOrElse { BatchState.Failed("Erreur") } }
+        val i = batch.indexOfFirst { it.isbn == isbn }
+        if (i >= 0) batch[i] = batch[i].copy(state = state)
+    }
+
+    /** Cherche le livre et l'ajoute directement à la collection (sans écran de vérification). */
+    private suspend fun autoAdd(isbn: String): BatchState {
+        repo.findVolumeByIsbn(isbn)?.let { (v, s) -> return BatchState.Owned(s.title, v.number, v.coverPath) }
+        val book = try { BookLookup.lookup(isbn) } catch (e: IOException) { return BatchState.Failed("Pas de réseau") }
+            ?: return BatchState.NotFound
+        // Infos de série et couverture cherchées avant d'écrire (hors verrou, en parallèle des autres livres).
+        val title = book.seriesTitle.ifBlank { book.rawTitle }.ifBlank { "Sans titre" }
+        val cover = book.coverUrl?.let { Images.download(getApplication(), it)?.path }
+        return batchDb.withLock {
+            repo.findVolumeByIsbn(isbn)?.let { (v, s) -> return@withLock BatchState.Owned(s.title, v.number, v.coverPath) }
+            val guess = repo.guessSeries(isbn, title)
+            val seriesId = guess?.id ?: run {
+                val info = MangaDb.search(title).getOrNull()
+                val banner = info?.imageUrl?.let { Images.download(getApplication(), it, "banner")?.path }
+                repo.saveSeries(
+                    Series(
+                        title = title, author = info?.authorsText?.ifBlank { null } ?: book.authors, publisher = book.publisher,
+                        genres = info?.genres?.joinToString(", ") ?: cleanCategories(book.categories).joinToString(", "),
+                        synopsis = book.description, ongoing = info?.finished?.not() ?: true,
+                        totalVolumes = if (info?.finished == true) info.volumes else null,
+                        colorSeed = title.hashCode(), bannerPath = banner
+                    )
+                )
+            }
+            val seriesTitle = guess?.title ?: title
+            val number = book.volumeNumber ?: nextNumber(seriesId).toInt()
+            if (repo.volumeDao.listForSeries(seriesId).any { it.number == number }) {
+                cover?.let { runCatching { File(it).delete() } }
+                return@withLock BatchState.Duplicate(seriesTitle, number)
+            }
+            val id = repo.addVolume(
+                Volume(seriesId = seriesId, number = number, isbn = isbn, coverPath = cover, summary = book.description.takeIf { it.isNotBlank() })
+            )
+            BatchState.Added(id, seriesTitle, number, cover, needsCheck = book.volumeNumber == null)
+        }
     }
 
     // ----- Couvertures manquantes -----
@@ -666,4 +741,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun dismissUpdate() { updateDialogDismissed = true }
     fun resetUpdateState() { _update.value = UpdateState.Idle }
+}
+
+/** Un livre scanné en mode « scan multiple ». */
+data class BatchItem(val isbn: String, val state: BatchState)
+
+sealed class BatchState {
+    data object Searching : BatchState()
+    data class Added(val volumeId: Long, val title: String, val number: Int, val cover: String?, val needsCheck: Boolean) : BatchState()
+    data class Owned(val title: String, val number: Int, val cover: String?) : BatchState()
+    data class Duplicate(val title: String, val number: Int) : BatchState()
+    data object NotFound : BatchState()
+    data class Failed(val message: String) : BatchState()
 }

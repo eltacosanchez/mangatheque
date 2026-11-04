@@ -134,11 +134,11 @@ private val dark: ColorScheme = darkColorScheme(
 
 val AppTypography = Typography(
     displayLarge = TextStyle(fontFamily = Display, fontSize = 38.sp, lineHeight = 42.sp),
-    displayMedium = TextStyle(fontFamily = Display, fontSize = 30.sp, lineHeight = 34.sp),
-    displaySmall = TextStyle(fontFamily = Display, fontSize = 24.sp, lineHeight = 28.sp),
-    headlineLarge = TextStyle(fontFamily = Display, fontSize = 26.sp, lineHeight = 30.sp),
-    headlineMedium = TextStyle(fontFamily = Display, fontSize = 22.sp, lineHeight = 26.sp),
-    headlineSmall = TextStyle(fontFamily = Display, fontSize = 20.sp, lineHeight = 24.sp),
+    displayMedium = TextStyle(fontFamily = Display, fontSize = 28.sp, lineHeight = 32.sp),
+    displaySmall = TextStyle(fontFamily = Display, fontSize = 22.sp, lineHeight = 26.sp),
+    headlineLarge = TextStyle(fontFamily = Display, fontSize = 23.sp, lineHeight = 28.sp),
+    headlineMedium = TextStyle(fontFamily = Display, fontSize = 20.sp, lineHeight = 24.sp),
+    headlineSmall = TextStyle(fontFamily = Display, fontSize = 18.sp, lineHeight = 22.sp),
     titleLarge = TextStyle(fontFamily = Body, fontWeight = FontWeight.Bold, fontSize = 20.sp, lineHeight = 26.sp),
     titleMedium = TextStyle(fontFamily = Body, fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 22.sp),
     titleSmall = TextStyle(fontFamily = Body, fontWeight = FontWeight.Bold, fontSize = 14.sp, lineHeight = 20.sp),
