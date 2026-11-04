@@ -132,6 +132,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     fun changeAutoBackup(on: Boolean) { autoBackupOn = on; prefs.autoBackup = on }
 
+    var hideMissing by mutableStateOf(prefs.hideMissing)
+        private set
+    fun changeHideMissing(on: Boolean) { hideMissing = on; prefs.hideMissing = on }
+
     var storeOnlyMissing by mutableStateOf(prefs.storeOnlyMissing)
         private set
     fun changeStoreOnlyMissing(on: Boolean) { storeOnlyMissing = on; prefs.storeOnlyMissing = on }

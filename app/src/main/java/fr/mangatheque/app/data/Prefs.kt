@@ -70,6 +70,11 @@ class Prefs(context: Context) {
         get() = sp.getLong("lastOrphanCleanup", 0L)
         set(v) = sp.edit().putLong("lastOrphanCleanup", v).apply()
 
+    /** Fiche série : ne montrer que les tomes possédés. */
+    var hideMissing: Boolean
+        get() = sp.getBoolean("hideMissing", false)
+        set(v) = sp.edit().putBoolean("hideMissing", v).apply()
+
     /** Magasin : n'afficher que les séries où il manque des tomes. */
     var storeOnlyMissing: Boolean
         get() = sp.getBoolean("storeOnlyMissing", false)

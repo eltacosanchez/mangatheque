@@ -45,6 +45,9 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.Wallpaper
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -221,7 +224,14 @@ fun SeriesScreen(
                             StatCard("${data.missingNumbers.size}", "manquants", Modifier.weight(1f), color = MaterialTheme.colorScheme.primary)
                         }
                         Spacer(Modifier.height(20.dp))
-                        SectionHeader("Les tomes")
+                        SectionHeader("Les tomes") {
+                            // Afficher / masquer les tomes manquants (réglage gardé pour toutes les séries)
+                            TextButton(onClick = { vm.changeHideMissing(!vm.hideMissing) }) {
+                                Icon(if (vm.hideMissing) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text(if (vm.hideMissing) "Voir les manquants" else "Masquer les manquants", style = MaterialTheme.typography.labelLarge)
+                            }
+                        }
                         Text(
                             "Appui long sur un tome : statut ou suppression",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -231,7 +241,8 @@ fun SeriesScreen(
                 }
 
                 val max = maxOf(data.published, 1)
-                items((1..max).toList(), key = { it }) { n ->
+                val numbers = if (vm.hideMissing) data.sortedVolumes.map { it.number } else (1..max).toList()
+                items(numbers, key = { it }) { n ->
                     val v = data.volumes.firstOrNull { it.number == n }
                     if (v != null) {
                         Column(Modifier.bounceClick(onLongClick = { haptic(); volumeSheet = v }) { onOpenVolume(v.id) }) {
@@ -253,12 +264,13 @@ fun SeriesScreen(
                     }
                 }
 
-                if (data.series.ongoing || data.series.totalVolumes == null) {
+                // Prochain tome (pas encore paru) : case distincte, cachée avec les manquants.
+                if (!vm.hideMissing && (data.series.ongoing || data.series.totalVolumes == null)) {
                     item {
                         Column(Modifier.clickable { addMissing = max + 1 }) {
-                            MissingCover(max + 1)
+                            MissingCover(max + 1, label = "Prochain")
                             Spacer(Modifier.height(6.dp))
-                            Text("Ajouter T${max + 1}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, maxLines = 1)
+                            Text("T${max + 1} · à paraître", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, maxLines = 1)
                         }
                     }
                 }

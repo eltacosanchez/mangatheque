@@ -100,9 +100,15 @@ class LookupTest {
         println("One Piece : ${op.size} tomes, dernier T${op.keys.maxOrNull()} (${System.currentTimeMillis() - t0} ms) ; T1=${op[1]} T4=${op[4]}")
         assertTrue(op.size >= 100)
         assertEquals("9782723488525", op[1])
+        val missingOp = (1..(op.keys.maxOrNull() ?: 0)).filter { it !in op }
+        println("One Piece : T13=${op[13]} ; encore absents : $missingOp")
+        assertNotNull(op[13])
         val sh = Editions.frenchVolumes("The Rising of the Shield Hero", "Bamboo édition", listOf("9782818940037")).getOrThrow()
-        println("Shield Hero : ${sh.size} tomes, dernier T${sh.keys.maxOrNull()} ; T2=${sh[2]}")
+        println("Shield Hero : ${sh.size} tomes, dernier T${sh.keys.maxOrNull()} ; T2=${sh[2]} ; absents : ${(1..(sh.keys.maxOrNull() ?: 0)).filter { it !in sh }}")
+        println("Shield Hero T20+ : " + sh.filterKeys { it >= 20 })
+        println("One Piece T108+ : " + op.filterKeys { it >= 108 })
         assertEquals("9782818940037", sh[2])
+        assertNotNull(sh[22])
         println("Couverture One Piece T4 -> ${BookLookup.findCover(op[4]!!)}")
     }
 

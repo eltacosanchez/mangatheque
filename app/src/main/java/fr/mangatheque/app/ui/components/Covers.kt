@@ -152,7 +152,7 @@ private fun GeneratedCover(title: String, number: Int?, publisher: String, seed:
  * sinon une case en pointillés avec le numéro.
  */
 @Composable
-fun MissingCover(number: Int, modifier: Modifier = Modifier, imageUrl: String? = null) {
+fun MissingCover(number: Int, modifier: Modifier = Modifier, imageUrl: String? = null, label: String = "Manquant") {
     if (imageUrl != null) {
         val gray = remember { ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) }) }
         val shape = RoundedCornerShape(12.dp)
@@ -168,7 +168,7 @@ fun MissingCover(number: Int, modifier: Modifier = Modifier, imageUrl: String? =
             Box(
                 Modifier.align(Alignment.TopCenter).padding(top = 6.dp).clip(RoundedCornerShape(99.dp))
                     .background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 8.dp, vertical = 2.dp)
-            ) { Text("Manquant", style = MaterialTheme.typography.labelSmall, color = Color.White) }
+            ) { Text(label, style = MaterialTheme.typography.labelSmall, color = Color.White) }
         }
         return
     }
@@ -183,7 +183,7 @@ fun MissingCover(number: Int, modifier: Modifier = Modifier, imageUrl: String? =
     ) {
         Text(number.toString(), fontFamily = Display, fontSize = 28.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
         Text(
-            "Manquant", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp)
         )
     }
