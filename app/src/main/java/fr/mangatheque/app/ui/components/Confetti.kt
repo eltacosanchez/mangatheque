@@ -1,11 +1,10 @@
 package fr.mangatheque.app.ui.components
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -14,70 +13,90 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.rotate
+import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.exp
+import kotlin.math.hypot
 import kotlin.math.sin
 import kotlin.random.Random
 
-/** Un morceau de confetti : départ, vitesse, rotation, couleur, forme. */
-private class Piece(
-    val x0: Float, val y0: Float,     // départ, en fraction de l'écran
-    val vx: Float, val vy: Float,     // vitesse initiale (fraction d'écran par seconde)
-    val spin: Float, val sway: Float, // rotation (°/s) et balancement
+/** Un petit morceau de confetti. */
+private class Bit(
+    val sx: Float, val sy: Float,       // départ, en fraction de l'élément (sur son contour)
+    val dx: Float, val dy: Float,       // direction de départ (unitaire, vers l'extérieur)
+    val speed: Float,                   // vitesse de départ, en dp/s
+    val spin: Float, val phase: Float,  // rotation (°/s) et décalage du battement
     val color: Color, val w: Float, val h: Float, val round: Boolean, val delay: Float
 )
 
+private val palette = listOf(
+    Color(0xFFE0262F), Color(0xFFFFC83D), Color(0xFF3FC489), Color(0xFF2F9BEA),
+    Color(0xFFFF6B9E), Color(0xFFA06CFF), Color(0xFFFF8A3D)
+)
+
+private const val DURATION = 1.3f // secondes
+
 /**
- * Pluie de confettis (environ 3,5 secondes) : explosion depuis le haut,
- * puis les morceaux retombent en tournoyant et en se balançant.
+ * Petite gerbe de confettis tout autour d'un élément (≈ 1,3 s), partie à [startNanos]
+ * (horloge `System.nanoTime()`). Les morceaux, petits, partent du contour vers l'extérieur,
+ * ralentissent, retombent doucement et s'effacent. À poser en `matchParentSize()`
+ * par-dessus l'élément : le dessin déborde autour de lui.
  */
 @Composable
-fun ConfettiBurst(modifier: Modifier = Modifier.fillMaxSize(), count: Int = 150) {
-    val colors = listOf(
-        Color(0xFFE0262F), Color(0xFFFF4A52), Color(0xFFFFC83D), Color(0xFF3FC489),
-        Color(0xFF2F9BEA), Color(0xFFFF6B9E), Color(0xFFFFFFFF), Color(0xFFA06CFF)
-    )
-    val pieces = remember {
-        val r = Random(System.nanoTime())
+fun ConfettiPop(startNanos: Long, modifier: Modifier = Modifier, count: Int = 22) {
+    var t by remember(startNanos) { mutableFloatStateOf((System.nanoTime() - startNanos) / 1e9f) }
+    LaunchedEffect(startNanos) {
+        while (t <= DURATION) {
+            withFrameNanos { }
+            t = (System.nanoTime() - startNanos) / 1e9f
+        }
+    }
+    if (t > DURATION) return
+    val bits = remember(startNanos) {
+        val r = Random(startNanos)
         List(count) {
-            val angle = Math.toRadians(r.nextDouble(200.0, 340.0)) // vers le haut, en éventail
-            val speed = r.nextFloat() * 0.9f + 0.5f
-            Piece(
-                x0 = 0.5f + (r.nextFloat() - 0.5f) * 0.3f, y0 = 0.32f + r.nextFloat() * 0.05f,
-                vx = (cos(angle) * speed).toFloat() * 0.6f, vy = (sin(angle) * speed).toFloat() * 0.55f,
-                spin = r.nextFloat() * 720f - 360f, sway = r.nextFloat() * 6f + 2f,
-                color = colors[r.nextInt(colors.size)], w = r.nextFloat() * 8f + 6f, h = r.nextFloat() * 10f + 6f,
-                round = r.nextInt(4) == 0, delay = r.nextFloat() * 0.25f
+            // Point de départ sur le contour (couverture 2:3 : plus de morceaux sur les grands côtés)
+            val p = r.nextFloat() * 10f
+            val u = r.nextFloat()
+            val (sx, sy) = when {
+                p < 2f -> u to 0.02f
+                p < 5f -> 0.98f to u
+                p < 7f -> u to 0.98f
+                else -> 0.02f to u
+            }
+            // Direction : depuis le centre vers ce point, avec un peu de hasard
+            var vx = sx - 0.5f; var vy = (sy - 0.5f) * 1.5f
+            val n = hypot(vx, vy).coerceAtLeast(0.001f); vx /= n; vy /= n
+            val a = (r.nextFloat() - 0.5f) * 0.9f
+            Bit(
+                sx, sy,
+                dx = vx * cos(a) - vy * sin(a), dy = vx * sin(a) + vy * cos(a),
+                speed = 45f + r.nextFloat() * 60f,
+                spin = r.nextFloat() * 540f - 270f, phase = r.nextFloat() * 6.28f,
+                color = palette[r.nextInt(palette.size)],
+                w = 3f + r.nextFloat() * 2f, h = 2f + r.nextFloat() * 2f,
+                round = r.nextInt(3) == 0, delay = r.nextFloat() * 0.12f
             )
         }
     }
-    var start by remember { mutableLongStateOf(0L) }
-    var now by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(Unit) {
-        start = withFrameNanos { it }
-        while (true) {
-            now = withFrameNanos { it }
-            if ((now - start) / 1e9f > 4f) break
-        }
-    }
-    if (start == 0L) return
-    val t = ((now - start) / 1e9f).coerceAtLeast(0f)
     Canvas(modifier) {
-        val gravity = 1.1f // fraction d'écran par seconde²
-        pieces.forEach { p ->
-            val tt = t - p.delay
+        val d = density
+        bits.forEach { b ->
+            val tt = t - b.delay
             if (tt <= 0f) return@forEach
-            // Freinage de l'air : la vitesse horizontale s'atténue, la chute se stabilise
-            val drag = 1f - kotlin.math.exp(-tt * 1.6f)
-            val x = (p.x0 + p.vx * drag / 1.6f + sin(tt * p.sway) * 0.015f) * size.width
-            val y = (p.y0 + p.vy * drag / 1.6f + 0.5f * gravity * tt * tt * 0.55f) * size.height
-            if (y > size.height + 40f) return@forEach
-            val alpha = (1f - ((tt - 2.8f) / 1f).coerceIn(0f, 1f)) // disparition en douceur
-            val wPx = p.w * density * 0.6f; val hPx = p.h * density * 0.6f * (0.4f + 0.6f * kotlin.math.abs(sin(tt * 6f + p.sway)))
-            rotate(p.spin * tt, Offset(x, y)) {
-                if (p.round) drawCircle(p.color.copy(alpha = alpha), wPx / 2f, Offset(x, y))
-                else drawRect(p.color.copy(alpha = alpha), Offset(x - wPx / 2f, y - hPx / 2f), Size(wPx, hPx))
+            val travel = b.speed / 3.2f * (1f - exp(-3.2f * tt)) // freinage de l'air
+            val fall = 0.5f * 38f * tt * tt                       // gravité douce
+            val x = b.sx * size.width + (b.dx * travel + sin(tt * 8f + b.phase) * 1.5f) * d
+            val y = b.sy * size.height + (b.dy * travel + fall) * d
+            val alpha = if (tt < 0.08f) tt / 0.08f else 1f - ((tt - (DURATION - 0.6f)) / 0.5f).coerceIn(0f, 1f)
+            val c = b.color.copy(alpha = alpha.coerceIn(0f, 1f))
+            if (b.round) {
+                drawCircle(c, b.w * d * 0.38f, Offset(x, y))
+            } else {
+                val w = b.w * d
+                val h = b.h * d * (0.35f + 0.65f * abs(sin(tt * 10f + b.phase))) // battement
+                rotate(b.spin * tt, Offset(x, y)) { drawRect(c, Offset(x - w / 2f, y - h / 2f), Size(w, h)) }
             }
         }
     }
 }
-

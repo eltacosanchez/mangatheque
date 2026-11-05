@@ -89,6 +89,11 @@ import fr.mangatheque.app.ui.components.SectionHeader
 import fr.mangatheque.app.ui.components.StatCard
 import fr.mangatheque.app.ui.components.StatusDot
 import fr.mangatheque.app.ui.theme.extra
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
@@ -188,8 +193,17 @@ fun SeriesScreen(
                                 val by = listOf(data.series.author, data.series.publisher).filter { it.isNotBlank() }.joinToString(" · ")
                                 if (by.isNotBlank()) Text(by, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Spacer(Modifier.height(8.dp))
-                                if (data.series.ongoing) Pill("En cours", MaterialTheme.colorScheme.primary)
-                                else Pill("Terminée", MaterialTheme.extra.ok)
+                                if (data.series.ongoing) {
+                                    // « En cours » + petite pastille pour suivre (ou non) les sorties
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Pill("En cours", MaterialTheme.colorScheme.primary)
+                                        val follows = vm.followsReleases(id)
+                                        FollowPill(follows) {
+                                            vm.setFollowReleases(id, !follows)
+                                            vm.toast(if (!follows) "Sorties suivies" else "Sorties masquées")
+                                        }
+                                    }
+                                } else Pill("Terminée", MaterialTheme.extra.ok)
                                 if (data.series.genreList.isNotEmpty()) {
                                     Spacer(Modifier.height(8.dp))
                                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -210,30 +224,6 @@ fun SeriesScreen(
                                 if (expanded) "Réduire" else "Lire plus", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.clickable { expanded = !expanded }.padding(vertical = 4.dp)
                             )
-                        }
-                        // Suivre les sorties de cette série (section « Prochaines sorties » de l'accueil)
-                        if (data.series.ongoing) {
-                            val follows = vm.followsReleases(id)
-                            Spacer(Modifier.height(12.dp))
-                            Row(
-                                Modifier.fillMaxWidth().mangaPanel(corner = 16.dp)
-                                    .clickable { vm.setFollowReleases(id, !follows) }.padding(horizontal = 14.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    if (follows) Icons.Rounded.NotificationsActive else Icons.Rounded.NotificationsOff, null,
-                                    tint = if (follows) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(Modifier.width(12.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text("Suivre les sorties", style = MaterialTheme.typography.titleSmall)
-                                    Text(
-                                        if (follows) "Les prochains tomes s'affichent à l'accueil" else "Pas affichée dans les sorties",
-                                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                Switch(checked = follows, onCheckedChange = { vm.setFollowReleases(id, it) })
-                            }
                         }
                         if (data.volumes.isNotEmpty()) {
                             Spacer(Modifier.height(14.dp))
@@ -391,5 +381,37 @@ fun SeriesScreen(
             confirmButton = { TextButton(onClick = { confirmDelete = false; vm.deleteSeries(data, onBack) }) { Text("Supprimer", color = MaterialTheme.colorScheme.error) } },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Annuler") } }
         )
+    }
+}
+
+/** Petite pastille « 🔔 Sorties » avec un mini-interrupteur : suivre ou non les sorties de la série. */
+@Composable
+private fun FollowPill(follows: Boolean, onToggle: () -> Unit) {
+    val accent = MaterialTheme.colorScheme.primary
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val tint by androidx.compose.animation.animateColorAsState(if (follows) accent else muted, label = "teinte")
+    val knob by androidx.compose.animation.core.animateDpAsState(if (follows) 11.dp else 0.dp, label = "bouton")
+    Row(
+        Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(99.dp))
+            .background(if (follows) accent.copy(alpha = 0.10f) else MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(onClick = onToggle)
+            .padding(start = 8.dp, end = 6.dp, top = 4.dp, bottom = 4.dp)
+            .semantics { contentDescription = if (follows) "Sorties suivies : toucher pour masquer" else "Sorties masquées : toucher pour suivre" },
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(if (follows) Icons.Rounded.NotificationsActive else Icons.Rounded.NotificationsOff, null, tint = tint, modifier = Modifier.size(14.dp))
+        Spacer(Modifier.width(4.dp))
+        Text("Sorties", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = tint)
+        Spacer(Modifier.width(6.dp))
+        // Mini-interrupteur
+        Box(
+            Modifier.width(24.dp).height(13.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(99.dp))
+                .background(if (follows) tint else muted.copy(alpha = 0.35f))
+        ) {
+            Box(
+                Modifier.padding(2.dp).offset(x = knob).size(9.dp)
+                    .clip(androidx.compose.foundation.shape.CircleShape).background(Color.White)
+            )
+        }
     }
 }

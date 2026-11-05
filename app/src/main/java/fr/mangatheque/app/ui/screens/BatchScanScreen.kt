@@ -97,6 +97,12 @@ import androidx.compose.ui.graphics.graphicsLayer
 import fr.mangatheque.app.ui.components.ScanFrameOverlay
 import fr.mangatheque.app.ui.theme.extra
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import androidx.compose.ui.zIndex
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
+import fr.mangatheque.app.ui.components.ConfettiPop
 import java.io.File
 
 private const val HITS = 4
@@ -234,6 +240,16 @@ private fun BatchReview(vm: AppViewModel, onBackToScan: () -> Unit, onComplete: 
     val saving = vm.batchSaving
     // Après « Valider » : écran de réussite (nombre enregistré)
     var success by rememberSaveable { mutableStateOf<Int?>(null) }
+    // Petite gerbe de confettis sur chaque livre au moment où il est enregistré
+    val bursts = remember { mutableStateMapOf<String, Long>() }
+    val seen = remember { items.filter { it.state is BatchState.Saved }.map { it.isbn }.toMutableSet() }
+    LaunchedEffect(Unit) {
+        snapshotFlow { items.filter { it.state is BatchState.Saved }.map { it.isbn } }.collect { list ->
+            list.forEach { if (seen.add(it)) bursts[it] = System.nanoTime() }
+        }
+    }
+    val scope = rememberCoroutineScope()
+    var finishing by remember { mutableStateOf(false) } // laisse finir les derniers confettis
     success?.let { n ->
         BatchSuccess(
             saved = n, covers = items.mapNotNull { (it.state as? BatchState.Saved)?.cover },
@@ -253,13 +269,20 @@ private fun BatchReview(vm: AppViewModel, onBackToScan: () -> Unit, onComplete: 
         },
         bottomBar = {
             Column(Modifier.background(MaterialTheme.colorScheme.surface).navigationBarsPadding().padding(16.dp)) {
-                if (saving != null) {
-                    Text("Enregistrement… ${saving.first + 1} / ${saving.second}", style = MaterialTheme.typography.bodyMedium)
+                if (saving != null || finishing) {
+                    Text(
+                        if (saving != null) "Enregistrement… ${saving.first + 1} / ${saving.second}" else "Terminé ✓",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
                     Spacer(Modifier.height(8.dp))
-                    LinearProgressIndicator(progress = { (saving.first + 1f) / saving.second }, modifier = Modifier.fillMaxWidth())
+                    LinearProgressIndicator(progress = { saving?.let { (it.first + 1f) / it.second } ?: 1f }, modifier = Modifier.fillMaxWidth())
                 } else if (ready > 0 || searching > 0) {
                     Button(
-                        onClick = { vm.batchValidate { n, _ -> success = n } },
+                        onClick = {
+                            vm.batchValidate { n, _ ->
+                                scope.launch { finishing = true; delay(if (n > 0) 1100 else 0); finishing = false; success = n }
+                            }
+                        },
                         enabled = ready > 0, shape = RoundedCornerShape(18.dp),
                         modifier = Modifier.fillMaxWidth().height(56.dp)
                     ) {
@@ -307,15 +330,18 @@ private fun BatchReview(vm: AppViewModel, onBackToScan: () -> Unit, onComplete: 
                 }
             }
             items(items, key = { it.isbn }) { item ->
-                Column(Modifier.bounceClick { open = item }) {
+                val burst = bursts[item.isbn]
+                // Au premier plan pendant sa gerbe, pour que les confettis passent par-dessus les voisins
+                Column(Modifier.zIndex(if (burst != null) 1f else 0f).bounceClick { open = item }) {
                     Box {
-                        Thumb(item, Modifier.fillMaxWidth().shadow(4.dp, RoundedCornerShape(10.dp)))
+                        Thumb(item, Modifier.fillMaxWidth().shadow(4.dp, RoundedCornerShape(10.dp)), popAt = burst)
                         tagOf(item.state)?.let { (label, color) ->
                             Text(
                                 label, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White,
                                 modifier = Modifier.align(Alignment.TopStart).padding(6.dp).clip(RoundedCornerShape(99.dp)).background(color).padding(horizontal = 8.dp, vertical = 2.dp)
                             )
                         }
+                        if (burst != null) ConfettiPop(burst, Modifier.matchParentSize())
                     }
                     Spacer(Modifier.height(6.dp))
                     Text(titleOf(item), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -390,14 +416,24 @@ private fun BookSheet(item: BatchItem, onRemove: () -> Unit, onComplete: () -> U
 
 /** Couverture d'un livre scanné, avec une pastille d'état. */
 @Composable
-private fun Thumb(item: BatchItem, modifier: Modifier) {
+private fun Thumb(item: BatchItem, modifier: Modifier, popAt: Long? = null) {
     val (icon, color) = stateIcon(item.state)
+    // La coche « rebondit » quand le livre vient d'être enregistré
+    val pop = remember { androidx.compose.animation.core.Animatable(1f) }
+    LaunchedEffect(popAt) {
+        if (popAt != null && System.nanoTime() - popAt < 400_000_000L) {
+            pop.snapTo(0.3f)
+            pop.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.4f, stiffness = 380f))
+        }
+    }
     Box(modifier.aspectRatio(2f / 3f).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
         coverOf(item.state)?.let { c ->
             AsyncImage(if (c.startsWith("http")) c else File(c), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         }
         Box(
-            Modifier.align(Alignment.BottomEnd).padding(4.dp).size(22.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surface),
+            Modifier.align(Alignment.BottomEnd).padding(4.dp).size(22.dp)
+                .graphicsLayer { scaleX = pop.value; scaleY = pop.value }
+                .clip(CircleShape).background(MaterialTheme.colorScheme.surface),
             contentAlignment = Alignment.Center
         ) {
             if (item.state is BatchState.Searching) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
@@ -530,7 +566,5 @@ private fun BatchSuccess(saved: Int, covers: List<String>, left: Int, onCollecti
         }
         TextButton(onClick = onScanMore) { Text("Scanner une autre pile") }
     }
-    // Pluie de confettis par-dessus (ne bloque pas les boutons)
-    if (saved > 0) fr.mangatheque.app.ui.components.ConfettiBurst()
     }
 }
